@@ -4,7 +4,7 @@
 > 对应评审报告 `review/系统设计评审与四人分工.md` 的 §4「修订后的目标架构」。
 > 所有状态、字段、接口、约束以本文为准；与 Proposal 原文冲突处，以本文的修订说明为准。
 >
-> 当前实现进度（W5 串行关口）：数据模型 `services/common/models.py`、契约
+> 当前实现进度：数据模型 `services/common/models.py`、契约
 > `services/common/schemas.py`、迁移 `20261027_0002` + `20261027_0003`、R1 的批次接入
 > （`services/api/app/ingestion.py` + API）、Worker/AI 规则基线、静态 UI（`frontend/`，
 > `/ui`）已可运行；R2/R3/R4 按 `docs/team-division.md` 的分工继续推进。
@@ -134,7 +134,7 @@
 | Ingestion（API 内） | 编码与列映射、逐行校验、去重 upsert、错误清单落库、批次状态机 | `services/api/app/ingestion.py` |
 | Worker | 原子认领 Job（租约）、逐条分析、写 `analysis_runs` 与关联、失败分类与重试、指标 | `services/worker/app/` |
 | AI Service | `/extract-issues`（单条或小批）、`/suggest-groups`（同商品归组建议）；规则基线可替换为 LLM | `services/ai/app/` |
-| Static UI | 批次 / 评论 / 问题组 / 复核 / 关于 五页导航（W5 仅跳转 + mock 数据，后续接真实接口） | `frontend/`（挂载于 API `/ui`） |
+| Static UI | 批次 / 评论 / 问题组 / 复核 / 关于五页；问题组页含筛选/搜索/状态卡片/详情（mock 数据） | `frontend/`（挂载于 API `/ui`） |
 | PostgreSQL | 事实表、推断表、审计表、任务表（§6） | — |
 | Source Adapter | `CsvSourceAdapter`（首版）、未来 `ApiSourceAdapter`；输出统一 `NormalizedComment` | `services/api/app/ingestion.py` |
 | Docker Compose | 本地四服务编排 + 可选 Prometheus | `compose.yaml` |
@@ -364,10 +364,10 @@ stateDiagram-v2
 
 | # | 接口 | 作用 | 关键约定 |
 | --- | --- | --- | --- |
-| 1 | `POST /review-batches` | 上传 CSV / JSON 批次 | JSON 内嵌 `csv_text` 或 `comments` + `Idempotency-Key`；返回 `BatchCreateResponse`（202）；multipart 文件上传 W6 接入 |
+| 1 | `POST /review-batches` | 上传 CSV / JSON 批次 | JSON 内嵌 `csv_text` 或 `comments` + `Idempotency-Key`；返回 `BatchCreateResponse`（202）；multipart 文件上传待接入 |
 | 2 | `GET /review-batches/{id}` | 批次进度与计数 | `BatchProgressRead`：导入计数 + `analyzed/failed/pending/processing` + `analysis_coverage` + `scope`（含 `as_of`） |
-| 3 | `GET /review-batches/{id}/errors` | 错误清单 | `BatchErrorRead` 列表（CSV 导出 W6） |
-| 4 | `GET /comments` | 评论列表 | 商品 / `analysis_status` / `has_issue` + `limit/offset`（cursor 优化 W6），返回 `scope` |
+| 3 | `GET /review-batches/{id}/errors` | 错误清单 | `BatchErrorRead` 列表（CSV 导出待补） |
+| 4 | `GET /comments` | 评论列表 | 商品 / `analysis_status` / `has_issue` + `limit/offset`（cursor 优化待补），返回 `scope` |
 | 5 | `GET /comments/{id}` | 评论详情 | `CommentDetailRead`：原文、`revisions`、`latest_analysis_run`、关联问题与证据 |
 | 6 | `GET /issues` | 问题组列表 | 商品 / 状态 / 类别 + `limit/offset`，附 `suggested/accepted` 计数 |
 | 7 | `GET /issues/{id}` | 问题组详情 | `IssueDetailRead`：关联评论 + 证据 + 计数口径 + actions 历史 |
@@ -376,9 +376,9 @@ stateDiagram-v2
 | 10 | `GET /jobs/{id}` | 单任务状态 | `AnalysisJobRead`（attempts、next_attempt_at、error_code） |
 | 11 | `POST /jobs/{id}/retry` | 人工重放 | failed 可人工重放（重置 attempts，记审计）；自动重试仍受 `max_attempts` 限制（R2 实现） |
 | 12 | `POST /jobs/{id}/recover` | 卡死回收 | 仅 claimed 且租约过期；写 `lease_expired`，回 pending（R2 实现） |
-| 13 | `GET /stats/summary` | 统计汇总 | `StatsSummaryRead`：§11 各项 + `scope(as_of)`；当前支持 `product_id`，日期过滤 W6 |
+| 13 | `GET /stats/summary` | 统计汇总 | `StatsSummaryRead`：§11 各项 + `scope(as_of)`；当前支持 `product_id`，日期过滤待补 |
 | 14 | `/health/live`、`/health/ready`、`/metrics` | 运维 | 沿用现状，补 worker 指标 |
-| 15 | `/ui/` | 静态前端 | `frontend/` 由 API 挂载，W5 仅提供五页导航 + mock 数据 |
+| 15 | `/ui/` | 静态前端 | `frontend/` 由 API 挂载，当前提供五页导航 + mock 数据 |
 
 可选：`POST /comments/{id}/reanalyze`（人工触发单条重跑），在 P1 阶段实现。
 
@@ -542,7 +542,7 @@ stateDiagram-v2
 
 | 风险 | 影响 | 应对 |
 | --- | --- | --- |
-| 平台权限 / CSV 样本拿不到 | 无法验证真实价值 | W5 先验证一种入口；未验证前只用合成数据并如实报告 |
+| 平台权限 / CSV 样本拿不到 | 无法验证真实价值 | 先验证一种入口；未验证前只用合成数据并如实报告 |
 | 字段不完整 / 编码混乱 | 导入失败率高 | 必填字段与错误清单；编码探测（UTF-8 / GBK）；先小样本 |
 | 重复导入 / 重试 / 正文变更导致计数错误 | 统计不可信 | 唯一键 + `comment_revisions` + 重跑只写 `suggested` |
 | 并发 Worker 重复建组 | AI 建议数虚高 | 唯一约束 + advisory lock + 归组独立后处理 |
@@ -553,7 +553,7 @@ stateDiagram-v2
 | 样本偏差 / 合成数据虚高 | 效果不可信 | 合成与真实数据分开报告；补充边界样本 |
 | 评论含 PII / 注入指令 | 合规与安全 | 授权脱敏；评论视作数据，不执行其中指令 |
 
-范围裁剪顺序（时间不足时）：先保 CSV → 单平台 → 无前端（Swagger + 脚本演示）→
+范围裁剪顺序：先保 CSV → 单平台 → 无前端（Swagger + 脚本演示）→
 只做规则基线归组；多平台、多模态、图片证据、自动回复全部推后。
 
 ## 15. 待确认决策（Open Decisions）
@@ -564,8 +564,8 @@ stateDiagram-v2
 | 2 | Job 粒度 | 1 评论 : 1 Job，批次只汇总 | 重试与统计 |
 | 3 | `dismissed` 是否终态 | 非终态，可人工重开（方案 A） | 状态机与页面 |
 | 4 | 错误清单是否落库 | 落库（`batch_rows`） | 表与接口 |
-| 5 | 数据入口 | 先 CSV，接口只留 adapter | 排期与验收 |
-| 6 | 最小前端范围 | W5 只做导航 + mock；真实接口 W6 接入 | 分工与工期 |
+| 5 | 数据入口 | 先 CSV，接口只留 adapter | 验收 |
+| 6 | 最小前端范围 | 已提供五页导航 + mock 交互；真实接口待接入 | 分工 |
 | 7 | 统计口径 | 按 §11 固定 | 验收与页面 |
 
 ---

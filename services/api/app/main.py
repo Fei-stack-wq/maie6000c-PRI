@@ -1,6 +1,6 @@
 """Review-management API (R1 scope: ingestion, comments, batches, read models).
 
-Endpoints implemented here are the W5/W6 R1 slice of ``docs/architecture.md``
+Endpoints implemented here are the R1 slice of ``docs/architecture.md``
 §8.  Issue review actions (R4) and stats enrichment (R4) are follow-up PRs; the
 read endpoints are present so the static UI and the team can work in parallel.
 """
@@ -406,7 +406,7 @@ def read_comment(comment_id: str, db: Session = Depends(get_db)) -> CommentDetai
 
 
 # ---------------------------------------------------------------------------
-# Issues (read-only for the W5 UI; actions belong to R4)
+# Issues (read-only for the current UI; actions belong to R4)
 # ---------------------------------------------------------------------------
 @app.get("/issues", response_model=list[IssueRead])
 def list_issues(

@@ -4,12 +4,12 @@
 > 本文定义**谁写哪些文件、接口怎么交接、什么算完成**；契约以
 > `services/common/schemas.py` 为准，任何人改契约都要走本文 §5 的变更流程。
 
-## 1. 协作模式：契约先行 + 四线并行 + 周集成
+## 1. 协作模式：契约先行 + 四线并行
 
-- **串行关口（已完成）**：W5 契约冻结（schemas/models/迁移 0002+0003）→ 迁移可执行 →
+- **前置关口（已完成）**：契约冻结（schemas/models/迁移 0002+0003）→ 迁移可执行 →
   R1 接入链路打通；之后四条工作流并行。
 - **并行四线**：R1 数据与接入、R2 流水线可靠性、R3 AI 与评测、R4 复核与产品端。
-- **每周五集成日**：合并 + 全量测试 + 迁移 + demo 录制；集成前各线自测通过。
+- **合并/发布前集成**：合并 + 全量测试 + 迁移 + demo 录制；集成前各线自测通过。
 - **共享文件单写者**：`services/common/`、`alembic/`、`docs/architecture.md` 只有 R1 能改；
   其他人以 issue/PR 提需求（字段名 / 类型 / 可空 / 索引 / 原因）。
 
@@ -27,7 +27,7 @@
 | 文件 | 归属 | 规则 |
 | --- | --- | --- |
 | `services/common/models.py`、`schemas.py`、`categories.py` | R1 主写；R3 可改 `categories.py` | 改前在群里声明；PR 需 R1+R2/R4 中至少 1 人评审 |
-| `alembic/versions/*` | R1 唯一写者 | 其他人只提字段需求 issue；迁移只在集成日执行 |
+| `alembic/versions/*` | R1 唯一写者 | 其他人只提字段需求 issue；迁移只在合并/发布时执行 |
 | `services/api/app/main.py` | R1 主写（批次/评论/任务/统计）；R4 将 issue endpoints 拆到 `issues.py` | 拆分前 R4 的 issue 改动需 R1 评审；拆分后各自单写 |
 | `services/worker/app/main.py` | R2 | R3 的 AI 契约变化需同步 R2 |
 | `services/ai/app/main.py` | R3 | R2 只依赖 HTTP 契约，不读 R3 内部实现 |
@@ -44,7 +44,7 @@
   - R2 的失败可见（`error_code`）→ R4 的演示脚本；
   - R1 的读接口 → R4 前端接真实数据。
 - **每次 PR 必须写明**：改了哪个契约 / 迁移 / 测试；影响哪条线。
-- 共享契约改动流程：开 issue → 改 `schemas.py` → 通知 R2/R3/R4 → 当天更新 mock/fixture。
+- 共享契约改动流程：开 issue → 改 `schemas.py` → 通知 R2/R3/R4 → 同步更新 mock/fixture。
 
 ## 4. Definition of Done（每条线）
 
@@ -59,19 +59,19 @@
 | 关口 | 状态 | 证据 |
 | --- | --- | --- |
 | 契约冻结（schemas/models） | ✅ 已完成 | `services/common/schemas.py`、`models.py`、`docs/architecture.md` §6/§8 |
-| 迁移可执行（0002 + 0003） | ✅ 已完成（离线 SQL 校验；本地需跑真实 PG） | `alembic upgrade head --sql`；`scripts/reset_database.py`；`make reset-db` |
+| 迁移可执行（0002 + 0003） | ✅ 已完成（真实 PostgreSQL 往返验证） | `alembic upgrade head`；`scripts/reset_database.py`；`make reset-db` |
 | R1 接入链路（批次 → 评论 → Job） | ✅ 已完成 | `services/api/app/ingestion.py`、`POST /review-batches`、集成测试 |
-| 静态 UI 五页导航 | ✅ 已完成（mock 数据） | `frontend/`，`/ui/` |
+| 静态 UI 五页导航 | ✅ 已完成（mock 数据；问题组含筛选/搜索/详情） | `frontend/`，`/ui/` |
 | Worker/AI 规则基线 | ✅ 可跑（R2/R3 继续加固） | `services/worker/app/main.py`、`services/ai/app/main.py` |
-| 联调（端到端演示） | ⏳ W6 集成日 | 需先 `make up` + `make seed`，浏览器打开 `/ui/` |
+| 联调（端到端演示） | ✅ 已完成（真实 Docker + PostgreSQL） | 批次 → Worker → AI → 问题组/证据链路已跑通；`make up` + `make seed` |
 
-**变更流程**：`main` 保护 → feature 分支 → PR（≤400 行，CI 绿）→ 24h 内评审 → 合并；
-迁移只在集成日执行；契约 PR 需至少 2 人评审。
+**变更流程**：`main` 保护 → feature 分支 → PR（≤400 行，CI 绿）→ 尽快评审 → 合并；
+迁移只在合并/发布时执行；契约 PR 需至少 2 人评审。
 
 ## 6. 风险与边界
 
 - 不让 R3 直接改 Worker 落库逻辑，R2 不让 AI 直接写数据库。
-- 前端不在 W5 接真实接口，避免被后端字段变化反复打断；W6 由 R4 逐步替换 mock。
+- 前端目前为 mock 数据；真实接口由 R4 后续接入，避免被后端字段变化反复打断。
 - 迁移一旦在本地/CI apply，后续字段用**新迁移**（0004+），不改历史。
 - 评论正文、证据、人工结论属于事实/审计数据：任何线不得用脚本直接改库来"修数据"，
   必须走 API 或明确的数据修复迁移。

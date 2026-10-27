@@ -1,5 +1,8 @@
 # Repo 审计：现有骨架 vs Proposal《商品评论管理与重复问题发现系统（单平台初版）》
 
+> 历史审计记录：记录的是改造前仓库状态，引用的 Proposal 图/提取脚本已在整理中清理；
+> 当前实现进度以 `docs/progress.md` 为准。
+
 审计基准：仓库 `F:\HKUST\MAIE6000c\Assignments\maie6000c-PRI`，HEAD `c044a7a`（2026-10-27）。Proposal docx、两张流程图与 `scripts/_extract_proposal.py` 目前均未纳入 git（`git status` 显示为 untracked）。
 一句话结论：**可复用的是"API/Worker/AI/DB 四段式异步管道 + Job 四态 + 健康检查/compose"，不可复用的是全部业务语义（Case/Pitch/Triage）**。Proposal 需要的 Review / IngestionBatch / Issue / ReviewIssue / ReviewRecord 五张表、批量接收入口、has_issue 三态、原文证据定位、人工复核闭环、去重幂等，代码里一处都没有。
 

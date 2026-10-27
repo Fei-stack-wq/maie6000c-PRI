@@ -1,4 +1,4 @@
-"""Analysis worker (R2 starter, needed for the W5 integration demo).
+"""Analysis worker (R2 starter, needed for the end-to-end demo).
 
 This is the minimal end-to-end loop: claim one job → call the AI service →
 validate the output → write ``analysis_runs`` / ``comment_issues`` / ``issues``

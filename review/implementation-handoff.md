@@ -1,10 +1,12 @@
-# 实现交接说明（W5 契约周交付）
+# 实现交接说明（契约与数据层阶段）
 
-> 注：本文记录 W5 契约周（0002 阶段）的交接。后续 0003 已移除旧骨架、R1 接入链路
-> 与静态 UI 已完成；**最新状态以 `docs/progress.md` 为准**，分工边界见 `docs/team-division.md`。
+> 注：本文是契约/数据层阶段的交接记录。后续 0003 已移除旧骨架，R1 接入链路、
+> Worker/AI 基线与静态 UI 均已完成；**最新状态以 `docs/progress.md` 为准**，
+> 分工边界见 `docs/team-division.md`。文内校验脚本与参考 SQL 属于当时的过程产物，
+> 已在整理中清理。
 
 > 本次交付把评审报告 §4 从"设计"落成"文档 + 数据层代码 + 迁移"，
-> 目标是让 R1–R4 可以并行进入 W6，而不是等一个人写完再交接。
+> 目标是让 R1–R4 可以并行开工，而不是等一个人写完再交接。
 > 复核记录见 `review/impl-review.md`（P0×3 / P1×10 / P2×12）。
 
 ## 1. 交付内容
@@ -18,7 +20,7 @@
 | `services/common/categories.py` | 新增 | 受控类别常量 + `CATEGORY_VERSION`（R3 直接用） |
 | `alembic/versions/20261027_0002_review_management.py` | 新增 | 8 张新表 + `jobs` 扩字段 + 约束/索引；**不删 `cases`**；downgrade 可回 0001 |
 | `.github/workflows/ci.yml` | 修改 | 增加 `downgrade → upgrade` 往返步骤 |
-| `review/` | 新增 | 评审报告与两份独立评审、图、校验脚本、迁移参考 SQL |
+| `review/` | 新增 | 评审报告、独立评审与过程文档（工具脚本与中间产物已清理） |
 
 ## 2. 关键决策（已写进 architecture.md）
 
@@ -29,18 +31,17 @@
 5. **批次状态只持久化导入阶段**；`completed/partially_failed` 由接口读时聚合派生，避免双写。
 6. **过渡策略**：0002 追加、legacy 接口继续可用；0003 删 `cases`、`ai_*`、旧接口与旧测试。
 
-## 3. 本地验证（已执行，命令可复跑）
+## 3. 本地验证（历史记录）
 
-> 沙箱里没有 PostgreSQL 与网络，因此迁移用离线 SQL 验证；团队本地请跑真实 upgrade/downgrade。
+> 以下命令与结果记录于契约/数据层阶段；对应校验脚本与参考 SQL 已按整理要求清理。
+> 真实 PostgreSQL 迁移往返、端到端与 UI 验收结果见 `docs/progress.md`。
 
-| 检查 | 命令 | 结果 |
-| --- | --- | --- |
-| models/migration/schemas 静态一致 | `python review/_check_impl.py` | all static checks passed |
-| 文档 §6.2 字段 vs 模型 vs 迁移 | `python review/_check_docs.py` | all doc/code consistency checks passed |
-| SQLite 建表 + 约束 + 契约 + legacy | `python review/_validate_runtime.py` | 全部 ok（含仅一个活跃 Job、`ck_jobs_*`、`CommentDetailRead` 非空列表） |
-| 旧 API 流程仍可用 | `python review/_validate_legacy_api.py` | 11 项 ok（POST /cases、GET /cases、GET /jobs） |
-| 迁移离线 SQL | `alembic upgrade head --sql` / `alembic downgrade head:20260713_0001 --sql` | 均 EXIT=0，产物见 `review/migration_0002_{up,down}_postgres.sql` |
-| 旧单元测试 | `pytest -q tests/unit` | 2 passed（integration 需本地 tmp 权限，沙箱不可跑） |
+- models/migration/schemas 静态一致：all static checks passed。
+- 文档 §6.2 字段 vs 模型 vs 迁移：all doc/code consistency checks passed。
+- SQLite 建表 + 约束 + 契约 + legacy：全部 ok（仅一个活跃 Job、`ck_jobs_*`、`CommentDetailRead` 非空列表）。
+- 旧 API 流程历史校验：11 项 ok（`POST /cases`、`GET /cases`、`GET /jobs`）。
+- 迁移离线 SQL：`upgrade head --sql` 与 `downgrade head:20260713_0001 --sql` 均 EXIT=0（参考 SQL 已清理）。
+- 旧单元测试：2 passed（当时 integration 受本地 tmp 权限限制，未执行）。
 
 运行环境：`D:\Conda\python.exe`（含 SQLAlchemy/Pydantic/FastAPI），`PYTHONPATH=仓库根`。
 
@@ -56,13 +57,13 @@
 
 P1 中已一并处理的：`as_of/scope` 与统计契约（`QueryScope`/`StatsSummaryRead`）、批次终态派生规则、旧 `GET /jobs` 不再 500（`JobRead.case_id` 可空 + 按 job_type 分流）、受控类别常量模块、`superseded_at/comment_version`、无稳定编号的合成 `source_review_id` 契约、合并冲突规则、评论详情版本/AI 输出契约、split/change 必填校验、CI 迁移往返。
 
-尚未做（有意留给 R1–R4 / W6）：
+尚未做（当时有意留给 R1–R4 后续）：
 
-- API / Worker / AI 的具体实现（本次只落契约与数据层）。
+- API / Worker / AI 的具体实现（当次只落契约与数据层；当前已完成最小实现）。
 - `server_default` 在模型与迁移之间的完全对齐（P2-5，仅影响裸 SQL 插入，ORM 插入不受影响）。
 - `error_code` 的 DB CHECK（P2-3，保持应用层枚举便于扩展）。
-- `docs/operations.md`、`README.md` 重写（P2-12，计划 W11–W12）。
-- 前端 / 演示页面（按评审报告 §5，W7 前不做）。
+- `docs/operations.md`、`README.md` 重写（当前已完成）。
+- 前端 / 演示页面（当前已完成静态界面；真实接口待接入）。
 
 ## 5. 接手顺序（按角色）
 
@@ -73,8 +74,7 @@ P1 中已一并处理的：`as_of/scope` 与统计契约（`QueryScope`/`StatsSu
 
 ## 6. 注意
 
-- **不要再改 0002**：一旦团队本地或 CI 已 apply，改动迁移历史会断链；后续字段用 0003。
-- 交付物目前是 **untracked**（未提交），`git add` 后再让队友切分支；否则对方拿不到本次交付。
-- 工作区还有 `docs/~$...Proposal.docx`（Word 打开时的临时锁文件）、空的 `review/.pytest-tmp*`、`.dsh_probe.txt`，提交前可手动清理。
+- **不要再改 0002/0003**：迁移历史已 apply；后续字段用 0004+。
+- 交付物已提交到本地 git；远程推送由团队决定。
 - 迁移目标 PostgreSQL；SQLite 只用于 `create_all` 单测。
 

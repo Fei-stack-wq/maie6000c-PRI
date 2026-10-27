@@ -1,6 +1,6 @@
 """Pydantic contracts shared by the API, Worker and AI service.
 
-Contract rules (frozen at the W5 serial gate):
+Contract rules (frozen before implementation):
 
 * AI may only return ``has_issue`` + ``issues[...]`` with ``evidence_text``
   that must be a verbatim substring of the normalised comment body.
@@ -73,9 +73,9 @@ class NormalizedComment(BaseModel):
 class BatchUploadRequest(BaseModel):
     """`POST /review-batches` body.
 
-    W5 accepts either inline ``comments`` or a ``csv_text`` payload (the CSV
-    content as a string) so the API has no multipart dependency yet; the W6 UI
-    can post a file through the same validation path.
+    The API currently accepts either inline ``comments`` or a ``csv_text``
+    payload (the CSV content as a string) so it has no multipart dependency;
+    a future multipart entry can post a file through the same validation path.
 
     Exactly one of ``comments`` / ``csv_text`` must be provided.  CSV columns:
     ``shop_id, product_id, body`` (required); ``source_review_id, review_date,
