@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light">
+  <meta name="theme-color" content="#1F4E79">
+  <meta name="description" content="ReviewLens 商品评论问题雷达 — 把零散评论整理成可复核、可跟踪的重复问题线索。">
+  <title>批次上传 · ReviewLens 评论洞察</title>
+  <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzFGNEU3OSIvPjxwYXRoIGQ9Ik04IDEwLjVoMTZNOCAxNmgxME04IDIxLjVoNiIgc3Ryb2tlPSIjQkJEN0YyIiBzdHJva2Utd2lkdGg9IjIuNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PGNpcmNsZSBjeD0iMjMiIGN5PSIyMS41IiByPSIyLjgiIGZpbGw9IiM3RUM3RkYiLz48L3N2Zz4=">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="侧边栏">
+      <a class="brand" href="#/batches" aria-label="ReviewLens 首页">
+        <span class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" fill="none">
+            <path d="M8 10.5h16M8 16h10M8 21.5h6" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+            <circle cx="23" cy="21.5" r="2.8" fill="#7EC7FF"/>
+          </svg>
+        </span>
+        <span class="brand-copy">
+          <strong>ReviewLens</strong>
+          <span>商品评论问题雷达</span>
+        </span>
+      </a>
+
+      <nav class="main-nav" aria-label="主导航">
+        <a class="nav-link is-active" href="#/batches" data-route="batches" aria-current="page">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 15v3.5A1.5 1.5 0 0 0 6.5 20h11a1.5 1.5 0 0 0 1.5-1.5V15" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="nav-label">批次上传</span>
+          <span class="nav-index" aria-hidden="true">01</span>
+        </a>
+        <a class="nav-link" href="#/comments" data-route="comments">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M5.5 5.5h13a1.5 1.5 0 0 1 1.5 1.5v8a1.5 1.5 0 0 1-1.5 1.5H11l-4.5 3v-3h-1A1.5 1.5 0 0 1 4 15V7a1.5 1.5 0 0 1 1.5-1.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 10h8M8 13h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </span>
+          <span class="nav-label">评论</span>
+          <span class="nav-index" aria-hidden="true">02</span>
+        </a>
+        <a class="nav-link" href="#/issues" data-route="issues">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 4 4.5 7.5 12 11l7.5-3.5L12 4Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m4.5 12 7.5 3.5 7.5-3.5M4.5 16.5 12 20l7.5-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="nav-label">问题组</span>
+          <span class="nav-index" aria-hidden="true">03</span>
+        </a>
+        <a class="nav-link" href="#/reviews" data-route="reviews">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><rect x="4.5" y="4.5" width="15" height="15" rx="3" stroke="currentColor" stroke-width="1.8"/><path d="m8.5 12 2.2 2.2 4.8-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="nav-label">人工复核</span>
+          <span class="nav-index" aria-hidden="true">04</span>
+        </a>
+        <a class="nav-link" href="#/about" data-route="about">
+          <span class="nav-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.8"/><path d="M12 10.8v5.2M12 8.2v.1" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>
+          </span>
+          <span class="nav-label">关于</span>
+          <span class="nav-index" aria-hidden="true">05</span>
+        </a>
+      </nav>
+
+      <div class="sidebar-meta">
+        <span class="meta-label">DEMO ENVIRONMENT</span>
+        <p>所有数据均为前端 mock，不写入后端。</p>
+        <a href="#/about">查看 API 与文档 <span aria-hidden="true">→</span></a>
+      </div>
+    </aside>
+
+    <div class="main-shell">
+      <header class="topbar">
+        <div class="topbar-copy">
+          <p class="eyebrow" id="page-kicker">INGESTION</p>
+          <h1 id="page-title">批次上传</h1>
+          <p id="page-subtitle">从 CSV 接入评论，校验后建立分析任务。</p>
+        </div>
+        <div class="topbar-actions">
+          <span class="mock-chip"><span class="mock-chip-dot" aria-hidden="true"></span>本地 Mock</span>
+          <a class="topbar-link" href="#/about">接口说明 <span aria-hidden="true">↗</span></a>
+        </div>
+      </header>
+
+      <main class="content" id="app" tabindex="-1">
+        <noscript>
+          <div class="noscript-card">此演示界面需要启用 JavaScript 才能切换页面。</div>
+        </noscript>
+      </main>
+
+      <footer class="app-footer">
+        <span>MAIE6000c · 商品评论管理与重复问题发现系统</span>
+        <span>前端初版 / 2026</span>
+      </footer>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+    <span class="toast-icon" aria-hidden="true">✓</span>
+    <span id="toast-message"></span>
+  </div>
+
+  <!-- 使用普通脚本按顺序加载，保证直接双击 index.html 也能运行。 -->
+  <script src="./mock-data.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>

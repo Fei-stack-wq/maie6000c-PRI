@@ -2,39 +2,44 @@ from __future__ import annotations
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 
 from services.api.app.main import app
-from services.common.db import Base, get_db, make_engine, make_session_factory
+from services.common.db import Base, get_db, make_session_factory
 
 
 @pytest.fixture()
-def db_session(tmp_path):
-    database_url = f"sqlite:///{tmp_path / 'test.db'}"
-    engine = make_engine(database_url)
-    testing_session_factory = make_session_factory(engine)
-
-    Base.metadata.create_all(bind=engine)
-    session = testing_session_factory()
-
+def engine():
+    """In-memory SQLite shared across threads (no tmp files, CI friendly)."""
+    test_engine = create_engine(
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
+    Base.metadata.create_all(bind=test_engine)
     try:
-        yield session
+        yield test_engine
     finally:
-        session.close()
-        Base.metadata.drop_all(bind=engine)
-        engine.dispose()
+        Base.metadata.drop_all(bind=test_engine)
+        test_engine.dispose()
 
 
 @pytest.fixture()
-def client(db_session):
+def session_factory(engine):
+    return make_session_factory(engine)
+
+
+@pytest.fixture()
+def client(session_factory):
     def override_get_db():
+        db = session_factory()
         try:
-            yield db_session
+            yield db
         finally:
-            pass
+            db.close()
 
     app.dependency_overrides[get_db] = override_get_db
-
     with TestClient(app) as test_client:
         yield test_client
-
     app.dependency_overrides.clear()

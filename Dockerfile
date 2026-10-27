@@ -9,6 +9,7 @@ WORKDIR /app
 COPY pyproject.toml README.md /app/
 COPY services /app/services
 COPY scripts /app/scripts
+COPY frontend /app/frontend
 COPY alembic /app/alembic
 COPY alembic.ini /app/alembic.ini
 

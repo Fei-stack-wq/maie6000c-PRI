@@ -216,3 +216,9 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# DSH sandbox / local browser tooling artifacts
+.dsh_probe.txt
+review/.chrome-profile/
+review/.pytest-tmp*/
+docs/~$*

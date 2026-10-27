@@ -48,5 +48,10 @@ jobs:
       - name: Alembic migration
         run: alembic upgrade head
 
+      - name: Alembic downgrade/upgrade round-trip
+        run: |
+          alembic downgrade 20260713_0001
+          alembic upgrade head
+
       - name: Unit and integration tests
         run: pytest -q tests/unit tests/integration

@@ -3,9 +3,9 @@ requires = ["setuptools>=80.0.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "maie6000c-starter-template"
-version = "0.1.0"
-description = "Starter template for MAIE 6000C"
+name = "maie6000c-review-management"
+version = "0.2.0"
+description = "商品评论管理与重复问题发现系统（单平台初版）"
 readme = "README.md"
 requires-python = ">=3.11,<3.12"
 dependencies = [
@@ -40,6 +40,8 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# team review/process scripts are not part of the shipped service code
+exclude = ["review"]
 
 [tool.ruff.lint]
 select = ["E", "F"]
