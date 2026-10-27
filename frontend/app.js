@@ -118,6 +118,13 @@
       status: 'all',
       hasIssue: 'all'
     },
+    issueFilters: {
+      status: 'all',
+      category: 'all',
+      product: 'all',
+      query: ''
+    },
+    issueScroll: 0,
     // 复核状态放在内存中，切换页面后仍会保留；刷新页面即重置。
     reviews: MOCK.reviews.map(function (item) {
       return Object.assign({}, item, { status: 'suggested' });
@@ -195,12 +202,6 @@
     toastTimer = window.setTimeout(function () {
       toast.hidden = true;
     }, 2800);
-  }
-
-  function getRouteFromHash() {
-    var raw = window.location.hash || '';
-    var route = raw.replace(/^#\/?/, '').split('?')[0].replace(/\/+$/, '');
-    return ROUTE_IDS.indexOf(route) !== -1 ? route : null;
   }
 
   function normalizeUrlToDefault() {
@@ -530,106 +531,399 @@
 
   // ---------- 视图：问题组 ----------
 
-  function renderIssueCard(issue) {
-    var detailId = 'issue-detail-' + issue.id;
-    var closeNote = issue.closeNote ?
-      '<div class="issue-close-note">' + escapeHtml(issue.closeNote) + '</div>' : '';
+  var ISSUE_STATUS_ORDER = ['proposed', 'confirmed', 'resolved', 'dismissed'];
+
+  function getIssueById(issueId) {
+    return MOCK.issues.filter(function (issue) {
+      return issue.id === issueId;
+    })[0] || null;
+  }
+
+  function getIssueComments(issueId) {
+    return MOCK.comments.filter(function (comment) {
+      return comment.issueId === issueId;
+    });
+  }
+
+  function getIssueReviews(issueId) {
+    return state.reviews.filter(function (review) {
+      return review.issueId === issueId;
+    });
+  }
+
+  function uniqueValues(list) {
+    var seen = {};
+    return list.filter(function (value) {
+      if (!value || seen[value]) {
+        return false;
+      }
+      seen[value] = true;
+      return true;
+    });
+  }
+
+  function issueFiltersActive() {
+    var filters = state.issueFilters;
+    return filters.status !== 'all' || filters.category !== 'all' ||
+      filters.product !== 'all' || !!filters.query;
+  }
+
+  function getFilteredIssues() {
+    var filters = state.issueFilters;
+    var query = filters.query;
+
+    return MOCK.issues.filter(function (issue) {
+      if (filters.status !== 'all' && issue.status !== filters.status) {
+        return false;
+      }
+      if (filters.category !== 'all' && issue.category !== filters.category) {
+        return false;
+      }
+      if (filters.product !== 'all' && issue.product !== filters.product) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      var haystack = [
+        issue.title,
+        issue.category,
+        issue.product,
+        issue.description,
+        issue.evidence,
+        issue.recommendation
+      ].join(' ').toLowerCase();
+      return haystack.indexOf(query) !== -1;
+    });
+  }
+
+  function issueStatusTone(status) {
+    return {
+      proposed: 'warning',
+      confirmed: 'pending',
+      resolved: 'success',
+      dismissed: 'neutral'
+    }[status] || 'neutral';
+  }
+
+  function issuePriorityTone(severity) {
+    return {
+      '高': 'high',
+      '中': 'mid',
+      '低': 'low'
+    }[severity] || 'mid';
+  }
+
+  function highlightMatch(value, query) {
+    var safe = escapeHtml(value);
+    if (!query) {
+      return safe;
+    }
+    var safeQuery = escapeHtml(query);
+    var pattern = new RegExp(escapeRegExp(safeQuery), 'gi');
+    return safe.replace(pattern, '<mark class="search-hit">$&</mark>');
+  }
+
+  function issueResultText() {
+    var total = MOCK.issues.length;
+    var matched = getFilteredIssues().length;
+    return issueFiltersActive() ?
+      '共 ' + total + ' 组 · 匹配 ' + matched :
+      '共 ' + total + ' 组';
+  }
+
+  var SEARCH_ICON = '<svg viewBox="0 0 24 24" fill="none" aria-hidden="true">' +
+    '<circle cx="11" cy="11" r="6.4" stroke="currentColor" stroke-width="1.8"/>' +
+    '<path d="m16 16 4.2 4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+
+  function renderIssueToolbar() {
+    var filters = state.issueFilters;
+    var categories = uniqueValues(MOCK.issues.map(function (issue) { return issue.category; }));
+    var products = uniqueValues(MOCK.issues.map(function (issue) { return issue.product; }));
+
+    var tabs = [{
+      value: 'all',
+      label: '全部',
+      count: MOCK.issues.length
+    }].concat(ISSUE_STATUS_ORDER.map(function (status) {
+      return {
+        value: status,
+        label: ISSUE_STATUS_META[status].label,
+        count: MOCK.issues.filter(function (issue) { return issue.status === status; }).length
+      };
+    })).map(function (tab) {
+      var active = filters.status === tab.value;
+      return '<button class="status-tab' + (active ? ' is-active' : '') + '" type="button" ' +
+        'aria-pressed="' + active + '" data-issue-status="' + escapeHtml(tab.value) + '">' +
+        escapeHtml(tab.label) +
+        '<span class="status-tab-count">' + tab.count + '</span>' +
+        '</button>';
+    }).join('');
+
+    var categoryOptions = '<option value="all"' + (filters.category === 'all' ? ' selected' : '') +
+      '>全部类别</option>' + categories.map(function (category) {
+        return option(category, category, filters.category);
+      }).join('');
+
+    var productOptions = '<option value="all"' + (filters.product === 'all' ? ' selected' : '') +
+      '>全部商品</option>' + products.map(function (product) {
+        return option(product, product, filters.product);
+      }).join('');
 
     return '' +
-      '<article class="issue-card" data-issue-card="' + escapeHtml(issue.id) + '">' +
-        '<button class="issue-toggle" type="button" data-issue-toggle aria-expanded="false" aria-controls="' + escapeHtml(detailId) + '">' +
-          '<span class="issue-title">' + escapeHtml(issue.title) + '</span>' +
-          '<span class="issue-chevron" aria-hidden="true">⌄</span>' +
-        '</button>' +
-        '<div class="issue-tag-row">' +
-          '<span class="tag tag--' + escapeHtml(issue.categoryTone) + '">' + escapeHtml(issue.category) + '</span>' +
-          '<span class="issue-product" title="' + escapeHtml(issue.product) + '">' + escapeHtml(issue.product) + '</span>' +
-        '</div>' +
-        '<div class="issue-counts">' +
-          '<div class="issue-count"><strong>' + escapeHtml(issue.suggested) + '</strong><span>AI 建议</span></div>' +
-          '<div class="issue-count"><strong>' + escapeHtml(issue.confirmed) + '</strong><span>人工确认</span></div>' +
-        '</div>' +
-        '<div class="issue-detail" id="' + escapeHtml(detailId) + '" hidden>' +
-          '<p>' + escapeHtml(issue.description) + '</p>' +
-          '<div class="issue-detail-block">' +
-            '<span class="issue-detail-label">原文证据</span>' +
-            '<blockquote class="issue-evidence">' + escapeHtml(issue.evidence) + '</blockquote>' +
+      '<section class="issues-toolbar" aria-label="问题组筛选与搜索">' +
+        '<div class="issues-toolbar-top">' +
+          '<label class="issue-search">' +
+            '<span class="issue-search-icon">' + SEARCH_ICON + '</span>' +
+            '<span class="sr-only">搜索问题组</span>' +
+            '<input id="issue-search" type="search" placeholder="搜索标题、类别、原文证据…" ' +
+              'value="' + escapeHtml(filters.query) + '" autocomplete="off" spellcheck="false">' +
+          '</label>' +
+          '<button class="btn btn-ghost btn-sm issue-filter-toggle" type="button" ' +
+            'id="issue-filter-toggle" aria-expanded="false" aria-controls="issue-secondary-filters">' +
+            '筛选</button>' +
+          '<div class="issues-filters" id="issue-secondary-filters">' +
+            '<label class="select-field">' +
+              '<span>类别</span>' +
+              '<select class="select" id="issue-category-filter" data-issue-filter="category">' +
+                categoryOptions +
+              '</select>' +
+            '</label>' +
+            '<label class="select-field">' +
+              '<span>商品</span>' +
+              '<select class="select" id="issue-product-filter" data-issue-filter="product">' +
+                productOptions +
+              '</select>' +
+            '</label>' +
           '</div>' +
-          '<div class="issue-detail-block">' +
-            '<span class="issue-detail-label">建议跟进</span>' +
-            '<p>' + escapeHtml(issue.recommendation) + '</p>' +
-          '</div>' +
-          '<dl class="issue-detail-grid">' +
-            '<div><dt>严重度</dt><dd>' + escapeHtml(issue.severity) + '</dd></div>' +
-            '<div><dt>最近更新</dt><dd>' + escapeHtml(issue.updated) + '</dd></div>' +
-            '<div><dt>涉及批次</dt><dd>' + escapeHtml(issue.batches) + '</dd></div>' +
-            '<div><dt>状态</dt><dd>' + escapeHtml(issue.status) + '</dd></div>' +
-          '</dl>' +
-          closeNote +
         '</div>' +
-        '<div class="issue-footer">' +
-          '<time>' + escapeHtml(issue.updated) + '</time>' +
-          '<span class="issue-toggle-label" data-toggle-label>查看详情</span>' +
+        '<div class="issues-toolbar-bottom">' +
+          '<div class="status-tabs" role="group" aria-label="按状态筛选">' +
+            '<span class="status-tabs-indicator" aria-hidden="true"></span>' + tabs +
+          '</div>' +
+          '<div class="issues-result">' +
+            '<span id="issue-result-count" aria-live="polite">' + issueResultText() + '</span>' +
+            '<button class="btn btn-ghost btn-sm" type="button" id="issue-filter-clear"' +
+              (issueFiltersActive() ? '' : ' hidden') + '>清除筛选</button>' +
+          '</div>' +
+        '</div>' +
+      '</section>';
+  }
+
+  function renderIssueCard(issue, index) {
+    var meta = ISSUE_STATUS_META[issue.status] || ISSUE_STATUS_META.proposed;
+    var comments = getIssueComments(issue.id);
+    var query = state.issueFilters.query;
+    var priorityTone = issuePriorityTone(issue.severity);
+
+    return '' +
+      '<a class="issue-card" data-status="' + escapeHtml(issue.status) + '" ' +
+        'href="#/issues/' + encodeURIComponent(issue.id) + '" ' +
+        'style="--i:' + Math.min(index, 8) + '" ' +
+        'aria-label="查看问题组：' + escapeHtml(issue.title) + '">' +
+        '<div class="issue-card-top">' +
+          statusBadge(meta.label, issueStatusTone(issue.status), false) +
+          '<span class="tag issue-category-chip">' + escapeHtml(issue.category) + '</span>' +
+          '<span class="issue-priority issue-priority--' + priorityTone + '">' +
+            escapeHtml(issue.severity) + '优先级</span>' +
+        '</div>' +
+        '<h3 class="issue-card-title">' + highlightMatch(issue.title, query) + '</h3>' +
+        '<p class="issue-card-product">' + escapeHtml(issue.product) + '</p>' +
+        '<p class="issue-card-desc">' + highlightMatch(issue.description, query) + '</p>' +
+        '<blockquote class="issue-card-evidence">' +
+          highlightMatch(issue.evidence, query) + '</blockquote>' +
+        '<div class="issue-card-foot">' +
+          '<div class="issue-card-counts">' +
+            '<span class="issue-count"><strong>' + escapeHtml(issue.suggested) +
+              '</strong><span>AI 建议</span></span>' +
+            '<span class="issue-count"><strong>' + escapeHtml(issue.confirmed) +
+              '</strong><span>人工确认</span></span>' +
+            '<span class="issue-count"><strong>' + comments.length +
+              '</strong><span>相关评论</span></span>' +
+          '</div>' +
+          '<span class="issue-card-cta">查看详情<span aria-hidden="true">→</span></span>' +
+        '</div>' +
+      '</a>';
+  }
+
+  function issueEmptyState() {
+    return '<div class="empty-state issue-empty"><strong>没有符合条件的问题组</strong>' +
+      '<span>试试换个关键词，或清除筛选条件。</span></div>';
+  }
+
+  function renderIssueGrid(filtered) {
+    if (!filtered.length) {
+      return '<div class="issue-grid is-empty" id="issues-grid">' + issueEmptyState() + '</div>';
+    }
+    return '<div class="issue-grid" id="issues-grid">' +
+      filtered.map(renderIssueCard).join('') +
+      '</div>';
+  }
+
+  function renderIssues() {
+    var filtered = getFilteredIssues();
+    return '' +
+      '<div class="view issues-view">' +
+        renderIssueToolbar() +
+        renderIssueGrid(filtered) +
+      '</div>';
+  }
+
+  function renderRelatedComment(comment, index) {
+    var ratingTone = comment.rating <= 2 ? 'danger' : (comment.rating >= 4 ? 'success' : 'neutral');
+    return '' +
+      '<article class="related-comment" style="--i:' + Math.min(index, 6) + '">' +
+        '<div class="related-comment-head">' +
+          '<strong>' + escapeHtml(comment.id) + '</strong>' +
+          '<span class="status-badge status-badge--' + ratingTone + ' related-comment-rating">评分 ' +
+            escapeHtml(comment.rating) + '</span>' +
+          '<span class="related-comment-source">' + escapeHtml(comment.platform) + ' / ' +
+            escapeHtml(comment.shop) + '</span>' +
+          '<time>' + escapeHtml(comment.date) + '</time>' +
+        '</div>' +
+        '<p class="related-comment-text">' + highlightEvidence(comment.content, comment.evidence) + '</p>' +
+        '<div class="related-comment-foot">' +
+          '<span class="tag tag--' + escapeHtml(comment.issueTone) + '">' + escapeHtml(comment.issueCategory) + '</span>' +
+          hasIssueBadge(comment.hasIssue) +
         '</div>' +
       '</article>';
   }
 
-  function renderIssues() {
-    var proposed = MOCK.issues.filter(function (issue) { return issue.status === 'proposed'; }).length;
-    var columns = Object.keys(ISSUE_STATUS_META).map(function (status) {
-      var meta = ISSUE_STATUS_META[status];
-      var items = MOCK.issues.filter(function (issue) { return issue.status === status; });
-      var cards = items.length ?
-        items.map(renderIssueCard).join('') :
-        '<div class="empty-state"><strong>暂无问题组</strong><span>新一批分析结果会出现在这里。</span></div>';
-
-      return '' +
-        '<section class="kanban-column kanban-column--' + status + '" aria-label="' + escapeHtml(meta.label) + '问题组">' +
-          '<header class="kanban-head">' +
-            '<div class="kanban-title-line">' +
-              '<span class="kanban-title">' + escapeHtml(meta.label) + ' <code>' + escapeHtml(status) + '</code></span>' +
-              '<span class="kanban-count">' + items.length + '</span>' +
-            '</div>' +
-            '<p class="kanban-desc">' + escapeHtml(meta.desc) + '</p>' +
-          '</header>' +
-          '<div class="kanban-stack">' + cards + '</div>' +
-        '</section>';
-    }).join('');
-
+  function renderIssueSuggestion(review) {
+    var meta = REVIEW_STATUS_META[review.status] || REVIEW_STATUS_META.suggested;
     return '' +
-      '<div class="view">' +
-        '<div class="board-meta">' +
-          '<span>共 ' + MOCK.issues.length + ' 个问题组 · <strong>' + proposed + '</strong> 个等待人工确认</span>' +
-          '<span class="legend">' +
-            '<span class="legend-item"><span class="legend-dot legend-dot--proposed"></span>待确认</span>' +
-            '<span class="legend-item"><span class="legend-dot legend-dot--confirmed"></span>已确认</span>' +
-            '<span class="legend-item"><span class="legend-dot legend-dot--resolved"></span>已解决</span>' +
-            '<span class="legend-item"><span class="legend-dot legend-dot--dismissed"></span>已忽略</span>' +
-          '</span>' +
+      '<li class="issue-suggestion">' +
+        '<div class="issue-suggestion-head">' +
+          statusBadge(meta.label, meta.tone, false) +
+          '<strong>' + escapeHtml(review.commentId) + '</strong>' +
+          '<span>置信度 ' + Math.round((review.confidence || 0) * 100) + '%</span>' +
         '</div>' +
-        '<div class="kanban">' + columns + '</div>' +
-      '</div>';
+        '<span class="issue-suggestion-meta">证据片段见下方相关评论</span>' +
+      '</li>';
   }
 
-  function toggleIssue(toggle) {
-    var card = toggle.closest('.issue-card');
-    if (!card) {
-      return;
+  function renderIssueDetail(issueId) {
+    var issue = getIssueById(issueId);
+    if (!issue) {
+      return '' +
+        '<div class="view issue-detail-view">' +
+          '<a class="detail-back" href="#/issues"><span aria-hidden="true">←</span> 返回问题组</a>' +
+          '<div class="empty-state issue-empty"><strong>未找到该问题组</strong>' +
+            '<span>它可能已被合并，或链接已经失效。</span></div>' +
+        '</div>';
     }
-    var detail = card.querySelector('.issue-detail');
-    var label = card.querySelector('[data-toggle-label]');
-    if (!detail) {
-      return;
-    }
-    var isOpen = toggle.getAttribute('aria-expanded') === 'true';
-    var nextOpen = !isOpen;
 
-    toggle.setAttribute('aria-expanded', String(nextOpen));
-    card.classList.toggle('is-open', nextOpen);
-    detail.hidden = !nextOpen;
-    if (label) {
-      label.textContent = nextOpen ? '收起详情' : '查看详情';
-    }
+    var meta = ISSUE_STATUS_META[issue.status] || ISSUE_STATUS_META.proposed;
+    var tone = issueStatusTone(issue.status);
+    var comments = getIssueComments(issue.id);
+    var reviews = getIssueReviews(issue.id);
+    var canConfirm = issue.status === 'proposed';
+    var canResolve = issue.status !== 'resolved' && issue.status !== 'dismissed';
+    var canDismiss = issue.status !== 'dismissed' && issue.status !== 'resolved';
+    var closeRow = issue.closeNote ? '<div class="issue-info-row"><span>关闭说明</span><p>' +
+      escapeHtml(issue.closeNote) + '</p></div>' : '';
+
+    var suggestionBlock = reviews.length ? '' +
+      '<div class="issue-link-block">' +
+        '<h3 class="issue-subhead">AI 建议关联</h3>' +
+        '<ul class="issue-link-list">' + reviews.map(renderIssueSuggestion).join('') + '</ul>' +
+      '</div>' : '';
+
+    var commentBlock = comments.length ?
+      comments.map(renderRelatedComment).join('') :
+      '<div class="empty-state issue-empty"><strong>暂无关联评论</strong>' +
+        '<span>这批数据里还没有评论归入该问题组。</span></div>';
+
+    var timelineBlock = '' +
+      '<div class="issue-link-block">' +
+        '<h3 class="issue-subhead">处理记录</h3>' +
+        '<ol class="issue-timeline">' +
+          '<li>' +
+            '<span class="issue-timeline-dot" aria-hidden="true"></span>' +
+            '<div><strong>AI 提取问题并建议归组</strong>' +
+              '<span>来自评论原文与证据片段</span></div>' +
+          '</li>' +
+          '<li>' +
+            '<span class="issue-timeline-dot" aria-hidden="true"></span>' +
+            '<div><strong>' + escapeHtml(meta.label) + '</strong>' +
+              '<span>' + escapeHtml(meta.desc) + ' · ' + escapeHtml(issue.updated) + '</span></div>' +
+          '</li>' +
+        '</ol>' +
+      '</div>';
+
+    return '' +
+      '<div class="view issue-detail-view" data-status="' + escapeHtml(issue.status) + '">' +
+        '<section class="issue-hero" data-status="' + escapeHtml(issue.status) + '">' +
+          '<div class="issue-hero-main">' +
+            '<a class="detail-back" href="#/issues"><span aria-hidden="true">←</span> 返回问题组</a>' +
+            '<div class="issue-hero-eyebrow">' +
+              statusBadge(meta.label, tone, false) +
+              '<span class="tag issue-category-chip">' + escapeHtml(issue.category) + '</span>' +
+              '<span class="issue-priority issue-priority--' + issuePriorityTone(issue.severity) + '">' +
+                escapeHtml(issue.severity) + '优先级</span>' +
+            '</div>' +
+            '<h2 class="issue-hero-title">' + escapeHtml(issue.title) + '</h2>' +
+            '<p class="issue-hero-product">' + escapeHtml(issue.product) + '</p>' +
+            '<p class="issue-hero-desc">' + escapeHtml(issue.description) + '</p>' +
+            '<blockquote class="issue-hero-evidence">' + escapeHtml(issue.evidence) + '</blockquote>' +
+            '<div class="issue-hero-meta">' +
+              '<span>最近更新 ' + escapeHtml(issue.updated) + '</span>' +
+              '<span>涉及批次 ' + escapeHtml(issue.batches) + '</span>' +
+            '</div>' +
+          '</div>' +
+          '<aside class="issue-hero-side" aria-label="问题组计数与操作">' +
+            '<div class="issue-hero-stats">' +
+              '<div class="issue-stat"><strong>' + escapeHtml(issue.suggested) + '</strong><span>AI 建议</span></div>' +
+              '<div class="issue-stat"><strong>' + escapeHtml(issue.confirmed) + '</strong><span>人工确认</span></div>' +
+              '<div class="issue-stat"><strong>' + comments.length + '</strong><span>相关评论</span></div>' +
+            '</div>' +
+            '<div class="issue-hero-actions">' +
+              '<button class="btn btn-primary" type="button" data-issue-action="confirm" ' +
+                'data-issue-id="' + escapeHtml(issue.id) + '"' + (canConfirm ? '' : ' disabled') +
+                '>确认问题组</button>' +
+              '<button class="btn btn-ghost" type="button" data-issue-action="resolve" ' +
+                'data-issue-id="' + escapeHtml(issue.id) + '"' + (canResolve ? '' : ' disabled') +
+                '>记录跟进</button>' +
+              '<button class="btn btn-ghost" type="button" data-issue-action="dismiss" ' +
+                'data-issue-id="' + escapeHtml(issue.id) + '"' + (canDismiss ? '' : ' disabled') +
+                '>驳回问题组</button>' +
+            '</div>' +
+          '</aside>' +
+        '</section>' +
+
+        '<div class="issue-detail-columns">' +
+          '<section class="panel issue-info-panel" aria-labelledby="issue-info-title">' +
+            '<div class="panel-head">' +
+              '<div>' +
+                '<h2 id="issue-info-title">判断依据</h2>' +
+                '<p>AI 建议、证据来源与当前处理状态。</p>' +
+              '</div>' +
+              statusBadge(meta.label, tone, false) +
+            '</div>' +
+            '<div class="issue-info-list">' +
+              '<div class="issue-info-row"><span>建议跟进</span><p>' + escapeHtml(issue.recommendation) + '</p></div>' +
+              '<div class="issue-info-row"><span>问题类别</span><p>' + escapeHtml(issue.category) + ' · ' +
+                escapeHtml(issue.product) + '</p></div>' +
+              '<div class="issue-info-row"><span>来源批次</span><p>' + escapeHtml(issue.batches) + '</p></div>' +
+              '<div class="issue-info-row"><span>最近更新</span><p>' + escapeHtml(issue.updated) + '</p></div>' +
+              closeRow +
+            '</div>' +
+            suggestionBlock +
+            timelineBlock +
+          '</section>' +
+
+          '<section class="panel issue-comments-panel" aria-labelledby="issue-comments-title">' +
+            '<div class="panel-head">' +
+              '<div>' +
+                '<h2 id="issue-comments-title">相关评论</h2>' +
+                '<p>归属于该问题组的评论原文与证据片段。</p>' +
+              '</div>' +
+              '<span class="count-chip">' + comments.length + ' 条</span>' +
+            '</div>' +
+            '<div class="related-comments">' + commentBlock + '</div>' +
+          '</section>' +
+        '</div>' +
+      '</div>';
   }
 
   // ---------- 视图：人工复核 ----------
@@ -923,25 +1217,218 @@
     about: renderAbout
   };
 
-  function renderRoute(route) {
-    updateChrome(route);
-    appRoot.innerHTML = renderers[route]();
-    window.scrollTo(0, 0);
+  var issueSearchTimer = null;
+
+  function parseRoute() {
+    var raw = (window.location.hash || '')
+      .replace(/^#\/?/, '')
+      .split('?')[0]
+      .replace(/\/+$/, '');
+    var parts = raw.split('/').filter(Boolean);
+    if (!parts.length) {
+      return null;
+    }
+    var route = parts[0];
+    if (route === 'issues' && parts[1]) {
+      return { route: 'issues', detailId: decodeURIComponent(parts[1]) };
+    }
+    return ROUTE_IDS.indexOf(route) !== -1 ? { route: route } : null;
+  }
+
+  function updateChrome(route, detailIssue) {
+    var meta = ROUTE_META[route];
+
+    if (route === 'issues' && detailIssue) {
+      pageTitle.textContent = '问题组';
+      pageKicker.textContent = 'ISSUE DETAIL';
+      pageSubtitle.textContent = '查看问题组、相关评论与判断依据。';
+      document.title = detailIssue.title + ' · ReviewLens 评论洞察';
+    } else {
+      pageTitle.textContent = meta.title;
+      pageKicker.textContent = meta.kicker;
+      pageSubtitle.textContent = meta.subtitle;
+      document.title = meta.title + ' · ReviewLens 评论洞察';
+    }
+
+    navLinks.forEach(function (link) {
+      var isActive = link.getAttribute('data-route') === route;
+      link.classList.toggle('is-active', isActive);
+      if (isActive) {
+        link.setAttribute('aria-current', 'page');
+      } else {
+        link.removeAttribute('aria-current');
+      }
+    });
+  }
+
+  function moveStatusIndicator() {
+    var tabs = document.querySelector('.status-tabs');
+    if (!tabs) {
+      return;
+    }
+    var indicator = tabs.querySelector('.status-tabs-indicator');
+    var active = tabs.querySelector('.status-tab.is-active');
+    if (!indicator || !active) {
+      return;
+    }
+
+    var apply = function (animate) {
+      indicator.style.transition = animate ? '' : 'none';
+      indicator.style.width = active.offsetWidth + 'px';
+      indicator.style.transform = 'translateX(' + active.offsetLeft + 'px)';
+      if (!animate) {
+        void indicator.offsetWidth;
+        indicator.style.transition = '';
+      }
+    };
+
+    if (!tabs.dataset.ready) {
+      apply(false);
+      tabs.dataset.ready = 'true';
+    } else {
+      apply(true);
+    }
+  }
+
+  function updateIssueTabs() {
+    Array.prototype.forEach.call(appRoot.querySelectorAll('[data-issue-status]'), function (tab) {
+      var active = tab.getAttribute('data-issue-status') === state.issueFilters.status;
+      tab.classList.toggle('is-active', active);
+      tab.setAttribute('aria-pressed', String(active));
+    });
+  }
+
+  function updateIssueResult() {
+    var count = document.getElementById('issue-result-count');
+    var clear = document.getElementById('issue-filter-clear');
+    if (count) {
+      count.textContent = issueResultText();
+    }
+    if (clear) {
+      clear.hidden = !issueFiltersActive();
+    }
+  }
+
+  function refreshIssues() {
+    var grid = document.getElementById('issues-grid');
+    if (!grid) {
+      return;
+    }
+    var filtered = getFilteredIssues();
+    grid.classList.remove('is-refreshing');
+    void grid.offsetWidth;
+    grid.classList.add('is-refreshing');
+    grid.innerHTML = filtered.length ?
+      filtered.map(renderIssueCard).join('') :
+      issueEmptyState();
+    updateIssueTabs();
+    updateIssueResult();
+    window.requestAnimationFrame(moveStatusIndicator);
+  }
+
+  function setIssueFilter(key, value) {
+    if (!Object.prototype.hasOwnProperty.call(state.issueFilters, key)) {
+      return;
+    }
+    state.issueFilters[key] = value;
+    refreshIssues();
+  }
+
+  function resetIssueFilters() {
+    state.issueFilters = { status: 'all', category: 'all', product: 'all', query: '' };
+    var search = document.getElementById('issue-search');
+    if (search) {
+      search.value = '';
+    }
+    var category = document.getElementById('issue-category-filter');
+    if (category) {
+      category.value = 'all';
+    }
+    var product = document.getElementById('issue-product-filter');
+    if (product) {
+      product.value = 'all';
+    }
+    refreshIssues();
+    showToast('筛选已清除');
+  }
+
+  function scheduleIssueSearch(value) {
+    var query = value.trim().toLowerCase();
+    if (issueSearchTimer) {
+      window.clearTimeout(issueSearchTimer);
+    }
+    issueSearchTimer = window.setTimeout(function () {
+      state.issueFilters.query = query;
+      refreshIssues();
+    }, 140);
+  }
+
+  function handleIssueAction(button) {
+    var issueId = button.getAttribute('data-issue-id');
+    var action = button.getAttribute('data-issue-action');
+    var issue = getIssueById(issueId);
+    var next = {
+      confirm: { status: 'confirmed', message: '已确认该问题组' },
+      resolve: { status: 'resolved', message: '已记录跟进，标记为已处理' },
+      dismiss: { status: 'dismissed', message: '已驳回该问题组' }
+    }[action];
+    if (!issue || !next) {
+      return;
+    }
+    issue.status = next.status;
+    renderRoute({ route: 'issues', detailId: issueId, preserveScroll: true });
+    showToast(next.message);
+  }
+
+  function renderRoute(parsed) {
+    var route = parsed.route;
+    var detailIssue = route === 'issues' && parsed.detailId ? getIssueById(parsed.detailId) : null;
+    var isIssueList = route === 'issues' && !parsed.detailId;
+    var scrollY = parsed.preserveScroll ? window.scrollY : (isIssueList ? state.issueScroll : 0);
+
+    updateChrome(route, detailIssue);
+    if (route === 'issues' && parsed.detailId) {
+      appRoot.innerHTML = renderIssueDetail(parsed.detailId);
+    } else {
+      appRoot.innerHTML = renderers[route]();
+    }
+    window.scrollTo(0, scrollY);
+    if (isIssueList) {
+      state.issueScroll = 0;
+    }
+    if (route === 'issues') {
+      window.requestAnimationFrame(moveStatusIndicator);
+    }
   }
 
   function handleRoute() {
-    var route = getRouteFromHash();
-
-    if (!route) {
+    var parsed = parseRoute();
+    if (!parsed) {
       // 未知 hash（包括空 hash）回退到默认批次页。
       normalizeUrlToDefault();
-      route = DEFAULT_ROUTE;
+      parsed = { route: DEFAULT_ROUTE };
     }
-
-    renderRoute(route);
+    renderRoute(parsed);
   }
 
   function handleRootClick(event) {
+    var issueLink = event.target.closest('.issue-card');
+    if (issueLink) {
+      // 记住列表滚动位置，返回时原地恢复。
+      state.issueScroll = window.scrollY;
+      return;
+    }
+
+    var filterToggle = event.target.closest('#issue-filter-toggle');
+    if (filterToggle) {
+      var toolbar = filterToggle.closest('.issues-toolbar');
+      if (toolbar) {
+        var isOpen = toolbar.classList.toggle('is-filters-open');
+        filterToggle.setAttribute('aria-expanded', String(isOpen));
+      }
+      return;
+    }
+
     var resetButton = event.target.closest('#reset-comment-filters');
     if (resetButton) {
       state.filters = { product: 'all', status: 'all', hasIssue: 'all' };
@@ -959,31 +1446,45 @@
       return;
     }
 
-    var issueToggle = event.target.closest('[data-issue-toggle]');
-    if (issueToggle) {
-      toggleIssue(issueToggle);
+    var statusTab = event.target.closest('[data-issue-status]');
+    if (statusTab) {
+      setIssueFilter('status', statusTab.getAttribute('data-issue-status'));
       return;
     }
 
-    // 点击问题卡片其它空白区域也可展开；详情区域内的点击不折叠。
-    var issueCard = event.target.closest('.issue-card');
-    if (issueCard && !event.target.closest('.issue-detail')) {
-      var cardToggle = issueCard.querySelector('[data-issue-toggle]');
-      if (cardToggle) {
-        toggleIssue(cardToggle);
-      }
+    var clearButton = event.target.closest('#issue-filter-clear');
+    if (clearButton) {
+      resetIssueFilters();
+      return;
+    }
+
+    var actionButton = event.target.closest('[data-issue-action]');
+    if (actionButton) {
+      handleIssueAction(actionButton);
+      return;
     }
   }
 
   function handleRootChange(event) {
     var select = event.target.closest('[data-comment-filter]');
-    if (!select) {
+    if (select) {
+      var key = select.getAttribute('data-comment-filter');
+      if (Object.prototype.hasOwnProperty.call(state.filters, key)) {
+        state.filters[key] = select.value;
+        refreshCommentList();
+      }
       return;
     }
-    var key = select.getAttribute('data-comment-filter');
-    if (Object.prototype.hasOwnProperty.call(state.filters, key)) {
-      state.filters[key] = select.value;
-      refreshCommentList();
+
+    var issueSelect = event.target.closest('[data-issue-filter]');
+    if (issueSelect) {
+      setIssueFilter(issueSelect.getAttribute('data-issue-filter'), issueSelect.value);
+    }
+  }
+
+  function handleRootInput(event) {
+    if (event.target && event.target.id === 'issue-search') {
+      scheduleIssueSearch(event.target.value);
     }
   }
 
@@ -1020,8 +1521,14 @@
 
     appRoot.addEventListener('click', handleRootClick);
     appRoot.addEventListener('change', handleRootChange);
+    appRoot.addEventListener('input', handleRootInput);
     appRoot.addEventListener('submit', handleRootSubmit);
     window.addEventListener('hashchange', handleRoute);
+    window.addEventListener('resize', function () {
+      if (document.querySelector('.status-tabs')) {
+        moveStatusIndicator();
+      }
+    });
 
     navLinks.forEach(function (link) {
       link.addEventListener('click', function () {

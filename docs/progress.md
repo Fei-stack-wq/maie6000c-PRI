@@ -18,6 +18,7 @@
 | 4 | R1 批量接入：CSV 解析、逐行校验、错误清单、去重 upsert、评论版本、建 Job | `services/api/app/ingestion.py`；`POST /review-batches`、`GET /review-batches/{id}`、`/errors` |
 | 5 | R1 读接口：评论列表/详情、问题组列表/详情、任务、统计汇总、幂等键 | `services/api/app/main.py` |
 | 6 | 静态 UI：批次/评论/问题组/复核/关于 五页导航（mock 数据） | `frontend/`；API 挂载 `/ui/` |
+| 7 | 问题组页 UI 改进：筛选/搜索/状态色卡片/详情页/顺滑动效 | `frontend/app.js`、`frontend/styles.css`；截图与说明见 `review/ui-final/`、`review/ui-redesign.md` |
 | 7 | Worker/AI 规则基线可跑（认领→AI→落库） | `services/worker/app/main.py`、`services/ai/app/main.py` |
 | 8 | 数据库重置与种子数据 | `scripts/reset_database.py`、`scripts/seed_demo_data.py`、`make reset-db` / `make seed` |
 | 9 | 测试基线：ingestion 单测、AI 单测、API 集成（内存 SQLite） | `tests/unit/`、`tests/integration/`，`make test` |
@@ -60,7 +61,7 @@ make test            # unit + integration（内存 SQLite，无需数据库）
 | **真实种子数据** | `python scripts/seed_demo_data.py` | comments=6 / issues=3 / jobs=6（1 条待分析） |
 | **真实端到端** | `python review/_e2e_real.py`（上传 → Worker → AI → 问题组） | REAL E2E OK：3 条全部 analyzed、证据 `evidence_verified`、重复上传 duplicate=3 |
 | 真实 smoke | `SMOKE_BASE_URL=http://127.0.0.1:8000 pytest tests/smoke` | 1 passed |
-| **UI 真实浏览器** | headless Chrome 截图 `review/ui-{batches,issues,reviews}.png` | 五页导航/激活态/看板渲染正常 |
+| **UI 真实浏览器** | headless Chrome 截图 `review/ui-final/{list,filter,search,dismissed,detail,mobile-list,mobile-detail}.png` | 桌面/移动端、筛选、搜索、已忽略状态、详情跳转均正常；对比度检查清零 |
 | 迁移离线 SQL | `alembic upgrade head --sql` / `alembic downgrade head:20260713_0001 --sql` | 均 EXIT=0 |
 | 模型/迁移/契约静态一致 | `python review/_check_impl.py` | all static checks passed |
 | 文档 vs 模型一致性 | `python review/_check_docs.py` | all doc/code checks passed |
@@ -78,4 +79,4 @@ make test            # unit + integration（内存 SQLite，无需数据库）
 2. **迁移一旦 apply，不再改历史**：后续字段写 0004+；本地重置用 `make reset-db`。
 3. 契约变更走 `docs/team-division.md` §5 流程；共享文件单写者（R1）。
 4. `frontend/` 目前是 mock 数据；W6 起 R4 按 `docs/architecture.md` §8 逐步接真实接口。
-5. 一次性脚本（Proposal 提取、图表生成、校验）统一放在 `review/`；`review/ui-*.png` 为界面验收截图。
+5. 一次性脚本（Proposal 提取、图表生成、校验）统一放在 `review/`；UI 验收截图与说明见 `review/ui-final/` 和 `review/ui-redesign.md`。
