@@ -470,6 +470,52 @@ def read_job(job_id: int, db: Session = Depends(get_db)) -> AnalysisJobRead:
     return AnalysisJobRead.model_validate(job)
 
 
+@app.post("/jobs/{job_id}/retry", response_model=AnalysisJobRead)
+def retry_job_endpoint(
+    job_id: int,
+    operator: str | None = Query(default=None, max_length=64),
+    db: Session = Depends(get_db),
+) -> AnalysisJobRead:
+    """Thin R2 route: state machine lives in ``services.worker.app.lifecycle``."""
+    from services.worker.app.lifecycle import JobConflictError, JobNotFoundError, retry_job
+
+    try:
+        job = retry_job(db, job_id, operator=operator or "api")
+        db.commit()
+        db.refresh(job)
+    except JobNotFoundError:
+        raise HTTPException(status_code=404, detail={"code": "job_not_found"}) from None
+    except JobConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "invalid_job_transition", "message": str(exc), "status": exc.status},
+        ) from None
+    return AnalysisJobRead.model_validate(job)
+
+
+@app.post("/jobs/{job_id}/recover", response_model=AnalysisJobRead)
+def recover_job_endpoint(
+    job_id: int,
+    operator: str | None = Query(default=None, max_length=64),
+    db: Session = Depends(get_db),
+) -> AnalysisJobRead:
+    """Thin R2 route: recover lease-expired claimed jobs."""
+    from services.worker.app.lifecycle import JobConflictError, JobNotFoundError, recover_job
+
+    try:
+        job = recover_job(db, job_id, operator=operator or "api")
+        db.commit()
+        db.refresh(job)
+    except JobNotFoundError:
+        raise HTTPException(status_code=404, detail={"code": "job_not_found"}) from None
+    except JobConflictError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "invalid_job_transition", "message": str(exc), "status": exc.status},
+        ) from None
+    return AnalysisJobRead.model_validate(job)
+
+
 @app.get("/stats/summary", response_model=StatsSummaryRead)
 def read_stats(
     product_id: str | None = None,
