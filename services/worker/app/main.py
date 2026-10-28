@@ -1,309 +1,131 @@
-"""Analysis worker (R2 starter, needed for the end-to-end demo).
-
-This is the minimal end-to-end loop: claim one job → call the AI service →
-validate the output → write ``analysis_runs`` / ``comment_issues`` / ``issues``
-and finish the comment + job in one transaction.
-
-R2 hardens this file: lease/fencing, retry/backoff, error-code taxonomy, batch
-completion bookkeeping and metrics.  R3 owns the grouping quality; the current
-rule is "same product + category reuses the first proposed/confirmed issue".
-"""
-
-from __future__ import annotations
-
-import hashlib
+"""R2 entry point: one bounded attempt at a time, no database lock across AI HTTP."""
 import logging
-import time
-from datetime import timedelta
+import signal
+import threading
+from time import perf_counter
 
-import httpx
-from pydantic import ValidationError
-from sqlalchemy import select, update
+from prometheus_client import start_http_server
 from sqlalchemy.orm import Session
 
 from services.common.config import configure_logging, get_settings
 from services.common.db import get_session_factory
-from services.common.models import (
-    AnalysisRun,
-    AnalysisStatus,
-    Comment,
-    CommentIssue,
-    ErrorCode,
-    HasIssue,
-    Issue,
-    IssueStatus,
-    Job,
-    JobStatus,
-    LinkOrigin,
-    LinkStatus,
-    utcnow,
-)
-from services.common.schemas import ExtractionResult
+from services.worker.app import analysis, jobs
+from services.worker.app.jobs import JobClaim
+from services.worker.app.metrics import AI_LATENCY, JOB_EVENTS, update_queue_metrics
+from services.worker.app.policy import classify_error
+from services.worker.app.settings import get_worker_settings
 
 configure_logging()
 logger = logging.getLogger("services.worker.main")
-settings = get_settings()
-
-LEASE_SECONDS = 600
-MAX_ATTEMPTS = 3
 
 
-def claim_next_pending_job(db: Session) -> Job | None:
-    stmt = (
-        select(Job)
-        .where(Job.status == JobStatus.PENDING.value)
-        .order_by(Job.created_at.asc())
-        .limit(1)
-    )
-    if db.get_bind().dialect.name == "postgresql":
-        stmt = stmt.with_for_update(skip_locked=True)
-    job = db.execute(stmt).scalars().first()
-    if job is None:
-        return None
-
-    now = utcnow()
-    job.status = JobStatus.CLAIMED.value
-    job.claimed_at = now
-    job.lease_expires_at = now + timedelta(seconds=LEASE_SECONDS)
-    job.attempts += 1
-    db.commit()
-    db.refresh(job)
-    return job
-
-
-def _classify_error(exc: Exception) -> str:
-    if isinstance(exc, httpx.TimeoutException):
-        return ErrorCode.AI_TIMEOUT.value
-    if isinstance(exc, httpx.HTTPError):
-        return ErrorCode.AI_ERROR.value
-    if isinstance(exc, (ValidationError, ValueError)):
-        return ErrorCode.AI_INVALID_OUTPUT.value
-    return ErrorCode.UNKNOWN.value
-
-
-def _comment_version(db: Session, comment: Comment) -> int:
-    from services.common.models import CommentRevision
-
-    last = db.execute(
-        select(CommentRevision.version)
-        .where(CommentRevision.comment_id == comment.id)
-        .order_by(CommentRevision.version.desc())
-        .limit(1)
-    ).scalar()
-    return last or 1
-
-
-def _upsert_link(db: Session, link: CommentIssue | None, **values) -> None:
-    if link is None:
-        db.add(CommentIssue(**values))
-        return
-    for key, value in values.items():
-        setattr(link, key, value)
-
-
-def process_job(job_id: int) -> None:
-    session_factory = get_session_factory()
-
-    with session_factory() as db:
-        job = db.get(Job, job_id)
-        if job is None:
-            return
-        comment = db.get(Comment, job.comment_id)
-        if comment is None:
-            raise RuntimeError(f"comment {job.comment_id} not found for job {job_id}")
-        payload = {
-            "comment_id": comment.id,
-            "body": comment.body,
-            "product_id": comment.product_id,
-        }
-
-    response = httpx.post(
-        f"{settings.ai_service_url}/extract-issues",
-        json=payload,
-        timeout=settings.worker_request_timeout_seconds,
-    )
-    response.raise_for_status()
-    result = ExtractionResult.model_validate(response.json())
-
-    with session_factory() as db:
-        job = db.get(Job, job_id)
-        comment = db.get(Comment, job.comment_id) if job else None
-        if job is None or comment is None:
-            return
-
-        run = AnalysisRun(
-            job_id=job.id,
-            comment_id=comment.id,
-            model_version=result.model_version,
-            prompt_version=result.prompt_version,
-            category_version=result.category_version,
-            input_hash=hashlib.sha256(comment.body.encode("utf-8")).hexdigest(),
-            output_json=result.model_dump(mode="json"),
-            status="succeeded",
-        )
-        db.add(run)
-        db.flush()
-
-        # Supersede previous AI suggestions (human decisions are untouched).
-        db.execute(
-            update(CommentIssue)
-            .where(
-                CommentIssue.comment_id == comment.id,
-                CommentIssue.origin == LinkOrigin.AI.value,
-                CommentIssue.status == LinkStatus.SUGGESTED.value,
-                CommentIssue.superseded_at.is_(None),
-            )
-            .values(superseded_at=utcnow())
-        )
-
-        version = _comment_version(db, comment)
-        verified = 0
-        for extracted in result.issues:
-            start = comment.body.find(extracted.evidence_text)
-            if start < 0:
-                logger.warning(
-                    "evidence_not_located",
-                    extra={"comment_id": comment.id, "evidence": extracted.evidence_text[:80]},
-                )
-                continue
-            issue = db.execute(
-                select(Issue)
-                .where(
-                    Issue.product_id == comment.product_id,
-                    Issue.category_id == extracted.category_id,
-                    Issue.status.in_(
-                        [IssueStatus.PROPOSED.value, IssueStatus.CONFIRMED.value]
-                    ),
-                )
-                .order_by(Issue.created_at.asc())
-                .limit(1)
-            ).scalars().first()
-            if issue is None:
-                issue = Issue(
-                    platform=comment.platform,
-                    shop_id=comment.shop_id,
-                    product_id=comment.product_id,
-                    category_id=extracted.category_id,
-                    title=extracted.description[:120],
-                    description=extracted.description,
-                    status=IssueStatus.PROPOSED.value,
-                    created_by="ai",
-                )
-                db.add(issue)
-                db.flush()
-            existing = db.execute(
-                select(CommentIssue).where(
-                    CommentIssue.comment_id == comment.id,
-                    CommentIssue.issue_id == issue.id,
-                )
-            ).scalars().first()
-            _upsert_link(
-                db,
-                existing,
-                comment_id=comment.id,
-                issue_id=issue.id,
-                status=LinkStatus.SUGGESTED.value,
-                origin=LinkOrigin.AI.value,
-                evidence_text=extracted.evidence_text,
-                evidence_start=start,
-                evidence_end=start + len(extracted.evidence_text),
-                evidence_verified=True,
-                analysis_run_id=run.id,
-                comment_version=version,
-                superseded_at=None,
-            )
-            verified += 1
-
-        has_issue = result.has_issue
-        if has_issue == HasIssue.YES and verified == 0:
-            has_issue = HasIssue.UNKNOWN
-
-        comment.analysis_status = AnalysisStatus.ANALYZED.value
-        comment.has_issue = has_issue.value
-        comment.current_analysis_run_id = run.id
-        comment.analysis_error = None
-
-        job.status = JobStatus.COMPLETED.value
-        job.completed_at = utcnow()
-        job.error = None
-        job.error_code = None
-        db.commit()
-
-    logger.info(
-        "job_completed",
-        extra={"job_id": job_id, "has_issue": has_issue.value, "verified_issues": verified},
-    )
-
-
-def mark_job_failed(job_id: int, error_code: str, message: str) -> None:
-    session_factory = get_session_factory()
-    with session_factory() as db:
-        job = db.get(Job, job_id)
-        if job is None:
-            return
-        job.status = JobStatus.FAILED.value
-        job.completed_at = utcnow()
-        job.error_code = error_code
-        job.error = message[:1000]
-        comment = db.get(Comment, job.comment_id) if job.comment_id else None
-        if comment is not None:
-            comment.analysis_status = AnalysisStatus.FAILED.value
-            comment.analysis_error = message[:500]
-        db.commit()
+def claim_next_pending_job(db: Session) -> JobClaim | None:
+    """Return the original claim, not just an ID; callers must retain it."""
+    return jobs.claim_next_pending_job(db, get_worker_settings())
 
 
 def recover_stale_jobs() -> int:
-    """Return lease-expired claimed jobs to pending (R2 will move this to a cron)."""
-    session_factory = get_session_factory()
-    with session_factory() as db:
-        stale = db.execute(
-            select(Job).where(
-                Job.status == JobStatus.CLAIMED.value,
-                Job.lease_expires_at.is_not(None),
-                Job.lease_expires_at < utcnow(),
-            )
-        ).scalars().all()
-        for job in stale:
-            job.status = JobStatus.PENDING.value
-            job.attempts += 1
-            job.error_code = ErrorCode.LEASE_EXPIRED.value
-        if stale:
-            db.commit()
-    return len(stale)
+    with get_session_factory()() as db:
+        return jobs.recover_stale_jobs(db, get_worker_settings())
 
 
-def run_worker() -> None:
-    session_factory = get_session_factory()
-    logger.info(
-        "worker_started",
-        extra={
-            "poll_seconds": settings.worker_poll_seconds,
-            "ai_service_url": settings.ai_service_url,
-        },
-    )
-
-    while True:
-        job = None
+def process_job(claim: JobClaim) -> str:
+    """Run and record one attempt; database failures remain recoverable by lease."""
+    if not isinstance(claim, JobClaim):
+        raise TypeError("process_job requires the original JobClaim, not a job ID")
+    factory = get_session_factory()
+    snapshot = None
+    started = perf_counter()
+    outcome = "stale"
+    try:
+        with factory() as db:
+            snapshot = jobs.load_input_for_claim(db, claim)
+        if snapshot is None:
+            return outcome
+        shared = get_settings()
+        raw, latency_ms = analysis.call_ai_service(
+            snapshot, shared.ai_service_url, shared.worker_request_timeout_seconds,
+        )
+        result = analysis.validate_ai_result(raw, snapshot)
+        verified = analysis.verify_evidence(result, snapshot)
+        if verified.invalid_evidence_count:
+            JOB_EVENTS.labels("invalid_evidence").inc(verified.invalid_evidence_count)
+            logger.warning("evidence_not_located", extra={
+                "job_id": claim.id, "comment_id": claim.comment_id,
+                "count": verified.invalid_evidence_count,
+            })
+        with factory() as db:
+            outcome = jobs.complete_job(db, claim, snapshot, verified, latency_ms)
+    except Exception as exc:  # noqa: BLE001 - attempt boundary
+        failure = classify_error(exc)
+        logger.warning("job_attempt_failed", extra={
+            "job_id": claim.id, "comment_id": claim.comment_id,
+            "error_code": failure.code, "exception_type": type(exc).__name__,
+        })
         try:
-            recovered = recover_stale_jobs()
-            if recovered:
-                logger.info("jobs_recovered", extra={"count": recovered})
-            with session_factory() as db:
-                job = claim_next_pending_job(db)
-            if job is None:
-                time.sleep(settings.worker_poll_seconds)
-                continue
+            with factory() as db:
+                outcome = jobs.handle_job_failure(
+                    db, claim, snapshot, failure, get_worker_settings(),
+                    max(0, round((perf_counter() - started) * 1000)),
+                )
+        except Exception as recording_exc:  # noqa: BLE001 - DB may still be unavailable
+            outcome = "recording_failed"
+            logger.error("job_failure_recording_unavailable", extra={
+                "job_id": claim.id, "exception_type": type(recording_exc).__name__,
+            })
+    finally:
+        if snapshot is not None:
+            AI_LATENCY.observe(perf_counter() - started)
+        JOB_EVENTS.labels(outcome).inc()
+        logger.info("job_attempt_finished", extra={
+            "job_id": claim.id, "comment_id": claim.comment_id,
+            "attempt": claim.attempts, "outcome": outcome,
+        })
+    return outcome
 
-            logger.info("job_claimed", extra={"job_id": job.id})
-            process_job(job.id)
-        except KeyboardInterrupt:
-            logger.info("worker_stopped")
-            raise
-        except Exception as exc:  # noqa: BLE001 - boundary of the job loop
-            logger.exception("job_processing_failed")
-            if job is not None:
-                mark_job_failed(job.id, _classify_error(exc), str(exc))
-            time.sleep(settings.worker_poll_seconds)
+
+def run_once() -> str:
+    recover_stale_jobs()
+    with get_session_factory()() as db:
+        update_queue_metrics(db)
+        claim = claim_next_pending_job(db)
+    return process_job(claim) if claim else "idle"
+
+
+def run_worker(stop_event: threading.Event | None = None, serve_metrics: bool = True) -> None:
+    shared = get_settings()
+    worker = get_worker_settings()
+    if worker.lease_seconds <= shared.worker_request_timeout_seconds:
+        raise ValueError("Worker lease must exceed the AI request timeout")
+    stop = stop_event if stop_event is not None else threading.Event()
+    previous = {}
+    if threading.current_thread() is threading.main_thread():
+        def request_stop(signum, frame):
+            stop.set()
+        for signum in (signal.SIGTERM, signal.SIGINT):
+            previous[signum] = signal.signal(signum, request_stop)
+    metrics_server = None
+    try:
+        if serve_metrics:
+            metrics_server = start_http_server(worker.metrics_port)
+        logger.info("worker_started")
+        while not stop.is_set():
+            try:
+                outcome = run_once()
+                if outcome in ("idle", "recording_failed"):
+                    stop.wait(shared.worker_poll_seconds)
+            except Exception as exc:  # noqa: BLE001 - recovery/claim may lose DB access
+                logger.error("worker_poll_failed", extra={"exception_type": type(exc).__name__})
+                stop.wait(shared.worker_poll_seconds)
+    finally:
+        if metrics_server:
+            server, thread = metrics_server
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+        logger.info("worker_stopped")
 
 
 if __name__ == "__main__":

@@ -29,7 +29,9 @@ class Category:
 CATEGORIES: dict[str, Category] = {
     "quality": Category(id="quality", name="质量", aliases=("做工", "质量", "材质")),
     "logistics": Category(id="logistics", name="物流", aliases=("快递", "发货", "物流", "包裹")),
-    "mismatch": Category(id="mismatch", name="描述不符", aliases=("色差", "与描述不符", "尺寸不符")),
+    "mismatch": Category(
+        id="mismatch", name="描述不符", aliases=("色差", "与描述不符", "尺寸不符"),
+    ),
     "usability": Category(id="usability", name="使用体验", aliases=("使用", "体验", "功能")),
     "other": Category(id="other", name="其他", aliases=()),
 }

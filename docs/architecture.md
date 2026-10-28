@@ -260,7 +260,7 @@ erDiagram
 - 状态枚举用 `String + CHECK`（而非 PG ENUM），便于测试与演进。`jobs.comment_id` 非空、
   `job_type` 只允许 `extract_issues`，一条评论同时最多一个非终态 Job（部分唯一索引）。
   `error_code` 保持应用层枚举（便于扩展新错误，不建 DB CHECK）。
-- `attempts` 计认领次数：Worker 认领 +1，租约过期回收也 +1；人工重放时清零并写审计。
+- `attempts` 计认领次数：Worker 仅在真正认领时 +1，租约回收不增加；人工重放时清零并写审计。
 - `comments.current_analysis_run_id` 不建 FK（与 `analysis_runs.comment_id` 循环），
   由应用维护；其余关联均建 FK。
 - 评分：`rating` 仅作筛选与展示，不参与问题判定。
@@ -278,7 +278,7 @@ stateDiagram-v2
     claimed --> completed: 输出有效并落库
     claimed --> failed: 超时 / 调用失败 / 输出无效（error_code）
     failed --> pending: attempts < max_attempts 且错误可重试
-    claimed --> pending: 租约过期回收
+    claimed --> pending: 租约过期或可重试失败
     failed --> [*]: attempts >= max_attempts（不再自动重试，可人工重放）
 ```
 
@@ -288,10 +288,9 @@ stateDiagram-v2
 | claimed → completed | Worker | `completed_at`；结果与状态同事务；fencing 校验 |
 | claimed → failed | Worker | `completed_at`、`error_code`、脱敏 `error` |
 | failed → pending | Worker 扫描（`attempts < max_attempts`）或 `POST /jobs/{id}/retry`（人工，重置 attempts 并记审计） | `next_attempt_at`；仅可重试错误 |
-| claimed → pending | 租约巡检 / `POST /jobs/{id}/recover` | `attempts+1`、记 `lease_expired` |
+| claimed → pending | 租约巡检 / `POST /jobs/{id}/recover` | attempts 不增加、记 `lease_expired` |
 
-> `attempts` 计**认领次数**（认领 +1、租约回收 +1）；人工重放时清零。故"attempts 只在
-> 认领时 +1"与租约回收并不矛盾。
+> R2 实现将 attempts 统一为实际认领次数：仅认领 +1，回收不增加。自动重试回 pending，并以 next_attempt_at 控制领取时间。
 
 **禁止** `failed → claimed`：`claimed` 只表示"正在处理"，重试必须回 `pending`。
 
@@ -468,7 +467,7 @@ stateDiagram-v2
 | --- | --- | --- | --- |
 | `ai_timeout` | AI 超时 | 是 | 退避后回 pending |
 | `ai_error` | AI 5xx / 连接失败 | 是 | 退避后回 pending |
-| `ai_invalid_output` | JSON / 证据校验失败 | 一次性 | 修复提示重试一次；仍失败则 failed |
+| `ai_invalid_output` | JSON / 编号 / 类别校验失败 | 一次性 | 修复提示重试一次；仍失败则 failed |
 | `db_error` | 数据库错误 | 是 | 记录并重试 |
 | `lease_expired` | Worker 中断 / 租约过期 | 是 | 巡检回收，attempts+1 |
 | `comment_not_found` | 评论被删除 | 否 | failed 终态 |
@@ -597,3 +596,7 @@ stateDiagram-v2
 | `services/common/{models,schemas}.py` | 本文 §6 / §8 / §9 的代码契约 |
 | `docs/team-division.md` | R1–R4 模块分工、边界与交接规则 |
 | `docs/progress.md` | 当前进度、串行关口清单与下一步 |
+
+## R2 已实现规则与目标设计的区别
+
+当前实际实现以 [r2-implementation.md](r2-implementation.md) 为准。失败尝试落 analysis_runs，仍可重试的 Job 直接回 pending，最终失败才保持 failed。原始 JobClaim 传递领取凭据，成功和失败写入均在任务行锁下核对归属与租约。正文更新获得新输入预算，人工结论不覆盖，过期建议不计入当前统计。人工 retry/recover API 和批量手工重放尚未实现，文中这些接口仍是目标设计。

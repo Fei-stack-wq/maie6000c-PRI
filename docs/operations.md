@@ -44,7 +44,7 @@ make seed
   `ai_invalid_output` / `db_error` / `unknown`），评论 `analysis_status=failed`，界面可见。
 - Worker 中断：`claimed` 且租约过期的 Job 由 Worker 启动时的巡检退回 `pending`
   （R2 会拆成独立脚本/定时任务）。
-- 人工重放：`POST /jobs/{id}/retry`（R2 实现）；批量重放 `scripts/requeue_batch.py`（R2 交付）。
+- 自动重试已实现；人工 retry API 与批量重放脚本尚未实现。过期任务巡检可执行 `python -m scripts.recover_stale_jobs`。
 - 数据库不可用：`/health/ready` 失败，Worker/AI 继续重试；不会伪造分析结果。
 
 ## 5. 常见问题
@@ -56,3 +56,9 @@ make seed
 | 界面 404 | 确认 `frontend/` 存在且 API 已重启（静态目录在启动时挂载） |
 | 测试需要数据库吗 | 不需要：`tests/` 使用内存 SQLite（`StaticPool`），CI 也跑单元+集成 |
 | 想清空演示数据但保留表 | 用 `reset_database.py` 会连表一起重建；只想清数据可用 `TRUNCATE`（注意外键） |
+
+## R2 运行与验证
+
+任务等待重试时为 pending，评论为 queued；next_attempt_at 表示下次允许执行时间。attempts 仅在真正领取时增加，回收不增加。Worker 内部 8200 提供指标，Prometheus 已配置采集。
+
+完整配置、故障处理、测试复现和未实现边界见 [r2-implementation.md](r2-implementation.md)。

@@ -28,7 +28,7 @@ CSV/接口 → 批次接收与校验 → comments + jobs → Worker 调 AI 提�
 | 幂等批次（`Idempotency-Key`）、批次进度派生、评论/问题组/任务/统计读接口 | ✅ R1 |
 | 静态界面：批次 / 评论 / 问题组 / 复核 / 关于（五页导航，mock 数据） | ✅ R4 starter |
 | 问题组页：状态筛选 + 搜索 + 状态色卡片 + 详情页（相关评论/判断依据/证据） | ✅ R4 UI 改进 |
-| Worker：原子认领 + 租约 + AI 调用 + 落库 + 失败标记（最小闭环） | 🟡 R2 加固中 |
+| Worker：安全认领 + 租约回收 + 有限重试 + 过期写入保护 + 事务落库 + 指标 | ✅ R2 核心可靠性已实现 |
 | AI 服务：`/extract-issues` 关键词规则基线 + 证据定位；`/suggest-groups` 占位 | 🟡 R3 替换为 LLM |
 | 复核动作 API（确认/驳回/改名/合并/拆分/记录跟进/重开） | ⏳ R4 |
 | 真实平台入口验证、multipart 上传、标注集与评测 | ⏳ 待完成 |
@@ -139,3 +139,5 @@ SMOKE_BASE_URL=http://localhost:8000 pytest tests/smoke -q
 - [Week 4 提交说明](templates/submissions/week04/README.md) ｜ [评审报告与分工](review/系统设计评审与四人分工.md)
 - 团队过程文件（评审/复核/验证脚本）：[review/](review/)
 - UI 改版说明：[review/ui-redesign.md](review/ui-redesign.md)
+
+R2 实现、测试结果及当前边界见 [docs/r2-implementation.md](docs/r2-implementation.md)。

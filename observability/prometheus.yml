@@ -9,3 +9,7 @@ scrape_configs:
   - job_name: ai
     static_configs:
       - targets: ["ai:8100"]
+
+  - job_name: worker
+    static_configs:
+      - targets: ["worker:8200"]

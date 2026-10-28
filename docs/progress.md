@@ -4,7 +4,7 @@
 
 ## 1. 一句话状态
 
-单平台初版的最小闭环已经跑通：**CSV 批次接入 → 评论/版本入库 → 逐条 Job → Worker 调用 AI 提取问题与证据 → 问题组聚合 → 静态 UI 查看/筛选/搜索/详情**；真实 PostgreSQL 上完成了迁移、清库重建、种子数据和端到端验证。当前 Worker/AI 仍是规则基线，前端仍是 mock 数据，真实平台入口与质量评测待补。
+单平台初版的最小闭环已经跑通：**CSV 批次接入 → 评论/版本入库 → 逐条 Job → Worker 调用 AI 提取问题与证据 → 问题组聚合 → 静态 UI 查看/筛选/搜索/详情**；真实 PostgreSQL 上完成了迁移、清库重建、种子数据和端到端验证。当前 AI 仍是规则基线；Worker 已完成核心可靠性，前端仍是 mock 数据，真实平台入口与质量评测待补。
 
 ## 2. 已完成
 
@@ -34,17 +34,13 @@
 | **重置与种子** | `scripts/reset_database.py`（删 schema 重建 + 迁移）、`scripts/seed_demo_data.py`（6 评论 / 3 问题组 / 6 Job，幂等）；`make reset-db`、`make seed` |
 | **待补** | 真实平台入口（商家 CSV / 授权接口）、multipart 文件上传、错误清单 CSV 导出、cursor 分页；当前使用 JSON `csv_text` + `limit/offset` |
 
-### 2.3 R2 流水线
+### 2.3 R2 流水线（已更新）
 
-| 事项 | 详情 |
-| --- | --- |
-| 原子认领 + 租约 | PostgreSQL `FOR UPDATE SKIP LOCKED` 认领 pending Job，写 `claimed`、`lease_expires_at`、`attempts`；轮询间隔与超时可配置 |
-| 过期回收 | Worker 启动/循环中把租约过期且未完成的 Job 回收为 pending（attempts 达上限则 failed） |
-| AI 调用与落库 | 调用内部 AI `/extract-issues`；记录 `analysis_runs`（模型/prompt/输入 hash/原始输出/耗时）；按评论 upsert 问题组与证据链接 |
-| 证据校验 | 校验 AI 返回的证据必须是原文子串；定位失败降级为 `unknown`，不伪造区间 |
-| 重跑语义 | 重跑保留历史 `analysis_runs`；旧的 AI `suggested` 关联写 `superseded_at`，人工 `accepted/rejected` 不覆盖 |
-| 失败可见 | 记录 `error_code`（AI 超时/非法输出/内部错误等）并把评论标为 failed，支持人工重试 |
-| 待补 | fencing token、`retry/recover` 管理接口、批量重放脚本、Worker 指标与并发/幂等专项 |
+- 已实现：状态同步、到期领取、有限重试、原子回收、领取凭据保护、人工结论保护、正文变化重排队、事务回滚、安全错误记录和 Worker 指标。
+- R1 评论更新补行锁；问题统计排除 superseded 建议。
+- 验证：58 项 unit/integration（含6项 PostgreSQL）及5项真实 HTTP smoke 通过；迁移往返、正常退出通过。
+- 待扩展：人工任务重试/恢复 API、持久化人工任务审计、批量手工重放。
+- 详见 [r2-implementation.md](r2-implementation.md)。
 
 ### 2.4 R3 AI 服务
 
@@ -72,8 +68,8 @@
 | --- | --- |
 | 真实 PostgreSQL 清库重建 | 9 张业务表 + `alembic_version`；`cases` 已不存在；种子 comments=6 / issues=3 / jobs=6 |
 | 真实端到端 | 真实 Docker 栈上传 3 条评论 → Worker → AI：3 条 analyzed、问题组与证据 `evidence_verified`、重复上传 `duplicate_rows=3` |
-| 自动化测试 | `pytest -q`：15 passed, 1 skipped（smoke 需运行环境）；单元覆盖 CSV 解析/校验、AI 规则；集成覆盖批次、幂等、错误清单、评论/问题组、UI、端到端流程 |
-| 冒烟 | `SMOKE_BASE_URL=http://127.0.0.1:8000 pytest tests/smoke`：1 passed（真实服务） |
+| 自动化测试 | `pytest -q`：58 passed（含6项真实PostgreSQL测试）；另有5项smoke通过；单元覆盖 CSV 解析/校验、AI 规则；集成覆盖批次、幂等、错误清单、评论/问题组、UI、端到端流程 |
+| 冒烟 | `SMOKE_BASE_URL=http://127.0.0.1:8000 pytest tests/smoke`：5 passed（真实HTTP，含故障注入） |
 | 迁移 | 离线 SQL 与真实 PostgreSQL 往返均通过 |
 | 文档 | architecture / README / operations / team-division / progress 重写并与代码对齐；`review/` 仅保留评审与过程文档 |
 
@@ -82,7 +78,7 @@
 | 线 | 事项 | 说明 |
 | --- | --- | --- |
 | R1 | 真实平台入口验证、multipart 文件上传、错误清单 CSV 导出、cursor 分页 | 目前 JSON 内嵌 CSV + limit/offset |
-| R2 | 租约/重试/fencing 完整化、错误码分类、`retry`/`recover` 接口、批量重放、Worker 指标 | 当前为可跑的最小循环 |
+| R2 | 人工 retry/recover API、持久化人工任务审计、批量手工重放 | 核心可靠性与指标已实现，详见 R2 文档 |
 | R3 | LLM 提取、统一证据校验、同商品归组、标注集与 P/R/F1、成本记录 | 当前为关键词规则基线 |
 | R4 | 复核动作 API、问题组/评论接口接真实数据、e2e 演示 | 读接口已存在；前端 mock 动作待替换 |
 | 全组 | 平台数据授权与样本获取、演示材料与最终报告 | 不依赖代码的收尾项 |
@@ -109,12 +105,12 @@ SMOKE_BASE_URL=http://localhost:8000 pytest tests/smoke -q
 
 | 检查 | 结果 |
 | --- | --- |
-| 单元 + 集成测试 | 15 passed, 1 skipped（smoke 需运行环境） |
+| 单元 + 集成测试 | 58 passed（含6项真实PostgreSQL测试）；另有5项smoke通过 |
 | 真实迁移往返 | `downgrade 20260713_0001` → `upgrade head` 均通过，最终版本 `20261027_0003` |
 | 真实清库重建 | 9 张业务表 + `alembic_version`；`cases` 不存在 |
 | 真实种子数据 | comments=6 / issues=3 / jobs=6（1 条待分析） |
 | 真实端到端 | 上传 → Worker → AI → 问题组/证据全部通过；重复上传去重 |
-| 真实 smoke | 1 passed |
+| 真实 smoke | 5 passed |
 | UI | 桌面/移动端/筛选/搜索/已忽略/详情均验证；无控制台错误、无横向溢出 |
 | 迁移离线 SQL | upgrade / downgrade 均 EXIT=0 |
 

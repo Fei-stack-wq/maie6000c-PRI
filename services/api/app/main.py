@@ -167,7 +167,7 @@ def _issue_counts(db: Session, issue_ids: list[str]) -> dict[str, dict[str, int]
         return {}
     rows = db.execute(
         select(CommentIssue.issue_id, CommentIssue.status, func.count())
-        .where(CommentIssue.issue_id.in_(issue_ids))
+        .where(CommentIssue.issue_id.in_(issue_ids), CommentIssue.superseded_at.is_(None))
         .group_by(CommentIssue.issue_id, CommentIssue.status)
     ).all()
     counts: dict[str, dict[str, int]] = {issue_id: {} for issue_id in issue_ids}
@@ -488,7 +488,7 @@ def read_stats(
             select(func.count(func.distinct(CommentIssue.comment_id)))
             .select_from(CommentIssue)
             .join(Issue, Issue.id == CommentIssue.issue_id)
-            .where(CommentIssue.status == status)
+            .where(CommentIssue.status == status, CommentIssue.superseded_at.is_(None))
         )
         if origin:
             stmt = stmt.where(CommentIssue.origin == origin)
