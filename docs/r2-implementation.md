@@ -1,149 +1,160 @@
-# R2 后台任务实现与验证
+# R2 Implementation / R2 实现说明
 
-本次实现保留现有数据库结构、HTTP AI 契约和用户查询接口，工作位于本地
-`feature/r2-worker` 分支。没有合并 main、推送或新增数据库迁移。
+## English
 
-## 1. 文件与调用关系
+### 1. Files and processing order
 
-`main.run_worker → run_once → jobs.recover_stale_jobs → jobs.claim_next_pending_job`
-随后 `process_job → jobs.load_input_for_claim → analysis.call_ai_service →
-validate_ai_result → verify_evidence → jobs.complete_job`。
+`main.run_worker()` loops through `run_once()`: recover expired work, update metrics, claim a due
+job, then call `process_job(claim)`. The original `JobClaim` is retained throughout the attempt.
 
-异常分支：
-`policy.classify_error → jobs.handle_job_failure → policy.should_retry /
-calculate_retry_delay`。
-
-| 文件 | 职责 |
+| File under `services/worker/app/` | Role |
 | --- | --- |
-| services/worker/app/main.py | 编排一次任务、持续轮询、外层异常保护、SIGTERM/SIGINT 正常退出 |
-| services/worker/app/jobs.py | 行锁领取、原始 JobClaim、受保护的事务保存、重试、回收、人工判断保护 |
-| services/worker/app/analysis.py | 固定输入快照、HTTP 调用、编号/版本/类别检查、原文证据定位 |
-| services/worker/app/policy.py | 错误分类、是否重试、1/5/25…倍等待（有上限）、安全错误摘要 |
-| services/worker/app/settings.py | Worker 专用配置；公共服务地址和 HTTP 超时沿用 common.config |
-| services/worker/app/metrics.py | 有界标签的事件计数、处理耗时、任务状态和最近成功轮询时间 |
-| scripts/recover_stale_jobs.py | 复用同一回收逻辑的手工巡检入口 |
+| `main.py` | Processing order, polling, error boundary and shutdown |
+| `jobs.py` | Claim ownership, transactional saving, recovery and state changes |
+| `analysis.py` | Input snapshot, HTTP call, output and evidence validation |
+| `policy.py` | Error classification and retry decisions |
+| `settings.py` | Worker settings |
+| `metrics.py` | Event counts, attempt duration, job counts and last poll |
 
-## 2. 状态与次数
+The R1 update path locks existing comments; query counts exclude superseded AI suggestions.
+The database schema and AI HTTP response format remain unchanged.
 
-- Job：等待执行/重试为 pending，正在执行为 claimed，最终成功为 completed，
-  最终失败为 failed。
-- Comment：分别为 queued、analyzing、analyzed、failed。
-- attempts 只在一次真正领取时增加；回收不增加。max_attempts=3 表示总共最多三次，
-  包括首次执行。
-- 自动重试直接把 Job 放回 pending 并设置 next_attempt_at；本次失败单独写
-  analysis_runs(status=failed)。下一次领取前保留错误摘要。
-- AI 无问题(no)和无法判断(unknown)都属于有效分析结果，不作为系统失败。
-- 证据无法在原文定位时丢弃对应关联，结果降为 unknown，并记录警告；
-  不把找不到的证据写成已验证。
-- 类别归组仍为同平台、同店铺、同商品、同类别的基础规则，不是语义归组。
+### 2. Success and data protection
 
-## 3. 重试与故障处理
+A claim changes job/comment states to `claimed`/`analyzing` and increments attempts once.
+Worker reads a fixed input snapshot, closes the database session, then sends HTTP outside the lock.
+It validates the response ID, schema/category versions and categories, and locates evidence in the
+same input. Unlocated issues are discarded and the verdict becomes `unknown`.
 
-| 情况 | 行为 |
+On completion, a transaction checks job ownership and input again. If the claim is old, it cannot
+write. If text changed, the old result is recorded as discarded/failed with `input_changed`, and the
+current input gets a new budget. Otherwise the analysis, issue links, comment result and completed
+job commit together. Exceptions roll back partial writes.
+
+Groups currently use platform/shop/product/category, with PostgreSQL advisory locks to avoid
+concurrent duplicate groups. This is a category baseline, not semantic grouping.
+Unreviewed AI suggestions can be replaced; accepted/rejected, human-created or decided links
+are preserved. Old superseded suggestions are not counted as current suggestions.
+
+### 3. Retry and recovery
+
+| Failure | Behaviour |
 | --- | --- |
-| 超时、连接错误、HTTP 429/5xx | 未达 Job 上限时等待后重试 |
-| 其他 HTTP 4xx | 最终失败，不反复调用 |
-| 输出格式、编号、类别或版本错误 | 最多一次自动重试，仍受 Job 总次数限制 |
-| 临时数据库连接/操作故障 | 能记录时安排重试；记录也失败时保留 claimed 等待租约回收 |
-| 数据库约束错误、未分类程序错误 | 停止自动重试，记录安全错误摘要 |
-| Worker 被强制关闭 | 租约到期后回收；达到次数上限时最终失败 |
-| 正常 SIGTERM/SIGINT | 不再领取新任务，当前有限时 HTTP 调用结束后退出 |
+| Timeout, connection failure, HTTP 429/5xx | Retry while the job has attempts remaining |
+| Other HTTP 4xx | Final failure |
+| Invalid JSON, ID, category or output version | At most one retry, within the total limit |
+| Transient database failure | Retry if the outcome can be recorded; otherwise wait for claim expiry |
+| Constraint or unexpected program error | Final failure with a short error summary |
+| Forced process termination | Recover the expired claim; final failure if the budget is exhausted |
 
-处理期限应大于 HTTP 超时。默认值为 600 秒与 20 秒。
-没有收到模型信息的失败记录明确标 unknown，不伪造模型版本。
-进程被强制结束/数据库持续不可用时，不能保证写入该次 AI 调用记录；任务仍可回收。
+Retries return to `pending`/`queued` with `next_attempt_at`. Default total attempts are three,
+including the first. Recovery does not add an attempt. A new claim invalidates the old one for both
+success and failure writes. If R1 updated a comment during an interrupted claim, recovery preserves
+the new input's chance to run. Normal SIGTERM/SIGINT stops further claims and finishes the current
+bounded attempt. A database outage or forced kill may prevent saving the attempt record.
 
-## 4. 数据正确性
+### 4. Settings and metrics
 
-- 每次领取返回不可变 JobClaim(id, comment_id, claimed_at, attempts)。
-  process_job 必须接收这份原始凭据，不再接受裸 Job ID。
-- 成功和失败写入均在事务中锁住任务并核对状态、领取时间、次数和租约，
-  过期凭据不允许改写新任务。
-- HTTP 调用期间不持有数据库事务锁。
-- 回来保存时重新锁住评论，检查正文、来源和 revision 标记。
-  输入变化时旧结果不成为当前结果，新正文重新排队并获得新的尝试预算。
-- R1 评论更新查询补充行锁，确保更新与后台保存按顺序执行。
-  如果更新后 Worker 强制退出，回收时识别 R1 的 queued 标记并重新安排新输入。
-- 成功结果、分析记录、问题关联和完成状态同事务提交；任一步失败全部回滚。
-- PostgreSQL 按平台/店铺/商品/类别取得 advisory lock，防止并发重复建组；
-  多类别按固定顺序加锁。
-- 人工 accepted/rejected、origin=human 或已写人工决定的关联不被 AI 覆盖。
-  已失效 AI 建议保留 superseded_at 历史，不再计入当前建议数。
-- R4 后续人工写接口应对同一 CommentIssue 使用行锁或原子条件更新；
-  已测试并发人工提交与后台重跑的保护。
+| Environment setting | Full-project default | Midterm override |
+| --- | ---: | ---: |
+| `WORKER_LEASE_SECONDS` | 600 | 60 |
+| `WORKER_RETRY_BASE_SECONDS` | 60 | 3 |
+| `WORKER_RETRY_MAX_SECONDS` | 900 | 6 |
+| `WORKER_RECOVERY_LIMIT` | 100 | 100 |
+| `WORKER_METRICS_PORT` | 8200 | 8200 |
+| `WORKER_POLL_SECONDS` | 2 | 0.3 |
+| `WORKER_REQUEST_TIMEOUT_SECONDS` | 20 | 10 |
 
-## 5. 查询与运行信号
+Default retry waits before the second and third attempts are 60 and 300 seconds; the demo uses
+3 and 6 seconds. The lease must exceed the HTTP timeout. Metrics and log commands are in
+[Operations](operations.md); port 8200 is internal in both configurations.
 
-现有 GET /jobs/{id}、评论/问题组/批次接口可继续使用，不新增前端依赖。
-问题组和汇总计数增加 superseded_at 过滤，避免重跑后计入过期建议。
+### 5. Verification and remaining work
 
-Worker 在容器内 8200 提供 Prometheus 指标：
-worker_job_events_total、worker_attempt_duration_seconds、
-worker_jobs、worker_last_poll_timestamp_seconds。
+The recorded R2 run passed 94 unit/integration tests, including six real PostgreSQL tests, and
+five real HTTP smoke tests. Statement coverage was 92%. Migration round-trips and graceful
+shutdown passed. These measure implementation behaviour, not analysis accuracy.
+Reproduce with ` .\scripts\test_r2.ps1 `; details and conditions are in the
+[verification record](../templates/submissions/week07/assets/verification.md).
 
-Compose 增加 Worker 指标服务存活检查，Prometheus 增加 worker:8200 采集。
-指标服务存活不等于数据库就绪，应结合最近成功轮询时间判断。
-未额外暴露宿主机 Worker 端口。
+Manual retry/recover APIs, persistent manual job-operation audit and batch replay remain unimplemented.
+`python -m scripts.recover_stale_jobs` only recovers expired/exhausted active work under the existing
+rules; it does not restart terminal failed jobs. R4 must protect concurrent review writes when its
+write endpoints are added. LLM and semantic grouping belong to the remaining analysis work.
 
-配置（可在 .env 中设置）：
+## 中文
 
-| 环境变量 | 默认 |
-| --- | ---: |
-| WORKER_LEASE_SECONDS | 600 |
-| WORKER_RETRY_BASE_SECONDS | 60 |
-| WORKER_RETRY_MAX_SECONDS | 900 |
-| WORKER_RECOVERY_LIMIT | 100 |
-| WORKER_METRICS_PORT | 8200 |
-| WORKER_POLL_SECONDS（原公共配置） | 2 |
-| WORKER_REQUEST_TIMEOUT_SECONDS（原公共配置） | 20 |
+### 1. 文件与执行顺序
 
-更换指标端口时，Compose 健康检查和 Prometheus 目标需同步修改。
+`main.run_worker()` 持续执行 `run_once()`：回收过期任务、更新指标、领取到期任务，
+再调用 `process_job(claim)`，整次执行保留原始 `JobClaim`。
 
-## 6. 测试与复现
+| `services/worker/app/` 下的文件 | 作用 |
+| --- | --- |
+| `main.py` | 处理顺序、轮询、异常边界和退出 |
+| `jobs.py` | 领取归属、事务保存、回收和状态变化 |
+| `analysis.py` | 输入快照、HTTP 调用、输出和证据检查 |
+| `policy.py` | 错误分类与重试判断 |
+| `settings.py` | Worker 配置 |
+| `metrics.py` | 事件次数、尝试耗时、任务数和最近轮询 |
 
-Windows 一键验证（先启动 Docker Desktop，在仓库根目录执行）：
-` .\scripts\test_r2.ps1 `
+R1 更新已有评论时增加行锁，查询计数排除已失效 AI 建议。
+数据库结构和 AI HTTP 返回格式保持不变。
 
-脚本使用随机命名的临时容器和独立测试库，源码只读挂载；自动执行静态检查、58项测试、迁移往返、5项真实HTTP测试，并在结束时清理自己创建的资源。首次需要下载依赖。`-SkipLive` 可跳过真实服务测试。
+### 2. 成功处理与数据保护
 
-单元与集成：
-`python -m pytest -q tests/unit tests/integration`
+领取时任务／评论改为 `claimed`／`analyzing`，尝试次数加一。
+Worker 读取固定输入后结束数据库会话，在不持锁的情况下发送 HTTP。
+检查回复编号、格式／类别版本和类别，再在同一输入中定位证据；找不到证据的问题丢弃，
+判断降为 `unknown`。
 
-真实 PostgreSQL 并发测试通过 WORKER_TEST_DATABASE_URL 启用；
-只接受数据库名以 _test 结尾的独立测试库。每个测试新建随机 schema，结束后删除
-该测试 schema，不使用业务 schema。没有该变量时，这些测试明确跳过。
-CI 已配置独立 *_test 数据库并启用这些测试。
+完成时在事务中再次检查任务归属和输入。旧领取不能写入；正文变化时，以 `input_changed`
+保存旧结果被丢弃／失败的记录，再为当前输入重新分配预算。
+输入未变时，分析、问题关联、评论结果和任务完成一起提交；中间异常回滚部分写入。
 
-真实服务/故障测试：
-在装好测试依赖的隔离 Linux 环境中，将同一个临时测试库迁移到 head，
-设置 WORKER_TEST_DATABASE_URL 后运行：
-`python tests/support/run_worker_live.py`。
-它启动临时 API、Worker、真实规则 AI 服务及仅供测试的 HTTP 故障代理。
-不应用于已有正在运行的应用环境；端口 18000、18100、18200、8200 必须空闲。
-正常响应来自真实 AI HTTP 服务，故障代理只注入一次/持续 HTTP 503。
-结束后关闭全部启动的服务，并检查 Worker 正常退出。
+当前按平台／店铺／商品／类别归组，使用 PostgreSQL advisory lock 防止并发重复建组，
+这仍是类别基线，不是语义归组。未经人工处理的 AI 建议可以更新；已接受、已拒绝、
+人工建立或已有决定信息的关联保留，失效建议不计入当前建议数。
 
-迁移仍使用现有 Alembic 链；不要为了测试在业务库执行 downgrade。
+### 3. 重试与回收
 
-## 7. 本次验证记录（2026-10-29）
+| 失败 | 处理方式 |
+| --- | --- |
+| 超时、连接错误、HTTP 429／5xx | 次数未用尽时重试 |
+| 其他 HTTP 4xx | 最终失败 |
+| JSON、编号、类别或输出版本错误 | 总次数范围内最多重试一次 |
+| 临时数据库故障 | 能保存决定时重试，否则等待领取到期 |
+| 约束错误或未分类程序错误 | 最终失败，保存简短错误摘要 |
+| 进程强制结束 | 回收过期领取；预算用尽时最终失败 |
 
-- Python 3.11.16，PostgreSQL 16，源码只读挂载到临时测试容器。
-- unit + integration：58 passed，含 6 项真实 PostgreSQL 测试。
-- 真实 HTTP smoke：5 passed（包含原有 smoke）。
-- 真实迁移：upgrade head → downgrade 20260713_0001 → upgrade head 通过。
-- 正常 Worker 退出：验证通过。
-- Windows 一键脚本：已从头完整执行，检查全部通过，临时资源自动清理。
-- R2 语句覆盖率：92%（unit + integration；独立服务进程未计入此覆盖率）。
-- Compose 配置：使用现有 Compose 可执行程序和示例环境文件验证通过；本机默认 docker compose 命令暂未发现插件，未修改系统设置。
-- 已有 categories.py 行长问题仅作换行修复，不改变类别内容。
-- 两条已有依赖库弃用警告仍存在，不影响测试结果。
+重试回到 `pending`／`queued` 并写 `next_attempt_at`，默认总共最多三次，包含首次。
+回收不增加次数。重新领取使旧执行的成功和失败写入都失效。
+R1 在中断期间更新正文时，回收保留新输入的执行机会。
+正常 SIGTERM／SIGINT 不再领取新任务，完成当前有限时尝试后退出。
+数据库中断或强制结束时，可能无法保存该次分析记录。
 
-## 8. 当前边界
+### 4. 配置与指标
 
-本次完成 R2 核心可靠性。人工 retry/recover API、持久化的人工任务操作审计、
-批量手工重放工具作为后续扩展，当前没有对外宣称这些接口已存在。
-脚本 recover_stale_jobs 可通过
-`python -m scripts.recover_stale_jobs` 执行已有过期回收，不重置最终失败任务。
+| 环境变量 | 原项目默认值 | 期中 Demo 值 |
+| --- | ---: | ---: |
+| `WORKER_LEASE_SECONDS` | 600 | 60 |
+| `WORKER_RETRY_BASE_SECONDS` | 60 | 3 |
+| `WORKER_RETRY_MAX_SECONDS` | 900 | 6 |
+| `WORKER_RECOVERY_LIMIT` | 100 | 100 |
+| `WORKER_METRICS_PORT` | 8200 | 8200 |
+| `WORKER_POLL_SECONDS` | 2 | 0.3 |
+| `WORKER_REQUEST_TIMEOUT_SECONDS` | 20 | 10 |
 
-真实平台数据、LLM 与语义归组、前端真实接口连接仍分别由对应模块继续完成。
-目前不能把规则分析或静态界面描述为已完成的大模型产品。
+默认第二、三次执行前分别等待 60、300 秒；Demo 为 3、6 秒。
+租约必须长于 HTTP 超时。指标和日志命令见 [运行说明](operations.md)，两种配置中的 8200 都是内部端口。
+
+### 5. 验证与待完成项
+
+已有 R2 验证记录为 94 项单元／集成（含六项真实 PostgreSQL）和 5 项真实 HTTP 冒烟通过，
+语句覆盖率为 92%，迁移往返和正常退出通过。这些检查实现行为，不表示分析准确率。
+使用 ` .\scripts\test_r2.ps1 ` 复现，条件见
+[验证记录](../templates/submissions/week07/assets/verification.md)。
+
+人工 retry/recover API、持久化人工任务操作审计和批量重放尚未实现。
+`python -m scripts.recover_stale_jobs` 只按现有规则处理过期／次数用尽的活跃任务，
+不会重新执行最终失败任务。R4 加入写接口时仍需保护并发人工决定；大模型和语义归组属于后续分析工作。

@@ -1,40 +1,9 @@
-# AI Use Statement
+# AI Use Statement / AI 使用说明
 
-## Tools used
+## English
 
-List any generative AI tools used during development or writing.
+We used ChatGPT to improve and polish the documentation and to assist with code scaffolding and testing.
 
-- Tool name:
-- Tool name:
+## 中文
 
-## Purpose of use
-
-Mark or describe the ways the tools were used.
-
-- brainstorming
-- code scaffolding
-- debugging suggestions
-- test generation ideas
-- documentation improvement
-- other:
-
-## Materially affected files or areas
-
-List the files, sections, or work areas that were materially influenced.
-
-- 
-- 
-- 
-
-## Verification performed
-
-Describe what you checked yourself.
-
-- correctness checks:
-- modifications made:
-- rejected suggestions:
-- limitations noticed:
-
-## Responsibility statement
-
-I confirm that I understand and can explain all submitted work associated with this statement.
+我们使用 ChatGPT 完善和润色文档说明，并辅助进行代码框架构造和测试。

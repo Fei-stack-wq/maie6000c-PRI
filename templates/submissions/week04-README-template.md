@@ -1,80 +1,20 @@
-# Week 4 Submission — Team Architecture Proposal and Project Plan
+# Week 04 — Proposal / 项目提案
 
-> Delete prompt text before final submission if desired.
+## English
 
-## Team information
+The [original Week 04 proposal](week04/README.md) records the earlier project direction.
+The product-review project now uses [Architecture](../../docs/architecture.md) for its design
+and [Week 07](week07/README.md) for the implemented milestone.
 
-- Team name:
-- Repository:
-- Checkpoint tag: `w04-proposal`
-- Team members:
+### AI Use Statement
 
-## 1. Problem context
+We used ChatGPT to improve and polish the documentation and to assist with code scaffolding and testing.
 
-- What problem are we solving?
-- Who is the primary user?
-- Why does this workflow matter?
+## 中文
 
-## 2. User workflow
+[原 Week 04 提案](week04/README.md)记录早期项目方向。
+商品评论项目的设计见[系统架构](../../docs/architecture.md)，已实现的里程碑见 [Week 07](week07/README.md)。
 
-Describe the core workflow from input to outcome.
+### AI 使用说明
 
-## 3. Success criteria
-
-- Product KPI:
-- Operational KPI:
-
-## 4. Architecture summary
-
-List the main components and their responsibilities.
-
-## 5. Data model and persistence plan
-
-List the core entities, relationships, and important workflow state.
-
-## 6. API / service plan
-
-List the main endpoints or service boundaries we expect to implement first.
-
-## 7. Async / worker plan
-
-What work will happen outside the immediate request cycle?
-
-## 8. AI-enabled component
-
-- What is the AI-enabled function?
-- Why is it appropriate?
-- What is the fallback or review path?
-
-## 9. Milestone plan
-
-### Week 5 target
-
-### Week 7 target
-
-### Week 9 target
-
-### Week 11 target
-
-### Week 13 target
-
-## 10. Risks and scope control
-
-- Top risk 1:
-- Top risk 2:
-- Top risk 3:
-- First feature(s) we will cut if progress slips:
-
-## 11. Artifact index
-
-List the supporting artifacts included for this milestone.
-
-- `docs/architecture.md`
-- ERD:
-- architecture diagram:
-- API draft:
-- other:
-
-## 12. AI Use Statement
-
-Summarize any generative AI assistance used in preparing this milestone and how the team verified the work.
+我们使用 ChatGPT 完善和润色文档说明，并辅助进行代码框架构造和测试。

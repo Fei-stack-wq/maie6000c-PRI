@@ -14,13 +14,6 @@ assignees: []
 - Review date:
 - Reviewer:
 
-## Submission checkpoint
-
-- Required tag:
-- Tag present:
-- Canvas submission record completed if required:
-- Repository accessible:
-
 ## Required artifacts checklist
 
 - [ ] README is present and current
@@ -28,7 +21,6 @@ assignees: []
 - [ ] docs/operations.md is present
 - [ ] docs/adrs/ exists
 - [ ] milestone submission folder exists
-- [ ] milestone checkpoint is reviewable
 
 ## Summary
 

@@ -1,5 +1,10 @@
 # 实现复核：architecture.md / 0002 迁移 / models.py + schemas.py
 
+> Historical engineering review; findings describe the version reviewed at that time.
+> Current implementation: [Architecture](../docs/architecture.md) and [Progress](../docs/progress.md).
+>
+> 历史工程评审，结论对应当时受评版本。当前实现见[系统架构](../docs/architecture.md)和[项目进度](../docs/progress.md)。
+
 > 历史复核记录：文内校验脚本、参考 SQL 与图表属于当时的过程产物，已在整理中清理；
 > 结论保留，作为契约与数据层的复核依据。
 
@@ -68,14 +73,7 @@
 - **P2-11 迁移注释与文档矛盾**：迁移注释说"tests may run migrations on SQLite"（`migration:46-48`），文档说"SQLite 只用于 create_all，不跑迁移"（`architecture.md:517`）；且 0002 含 `alter_column`，在 SQLite 上真跑会失败。→ 改注释，与文档一致。
 - **P2-12 旧文档未同步**：`docs/operations.md` 仍是"submit a case / case marked failed"的旧域文案（`operations.md:9-10`、`:26-28`），README 标题仍是 Starter API。属 R1 后续文档计划（报告 P1-15），本次可不改，但需标注"operations/README 待重写"。
 
-## 五、建议下一步（按角色）
-
-- **R1（数据与契约）**：先关 P0-1（BatchRead/BatchProgressRead、job_count 语义）与 P1-1/P1-3/P1-6/P1-10；再给 0002 补 jobs CHECK（P0-3）与 categories（P1-4）——建议合并成 0002.1，避免已 apply 的环境重写历史；最后提交 0002 与 assets（P2-10）。契约改动走 PR 评审（报告 §5.5）。
-- **R2（Worker）**：开工前先确认 P0-3（job_type 必填/CHECK）与 P2-1（attempts 语义、超限是否有重放入口），再按 §7.1/§9.1 实现认领/租约/fencing；不要复用 legacy `JobRead`，`GET /jobs/{id}` 过渡期行为按 P1-3 定。
-- **R3（AI 与评测）**：先落类别常量表 + `category_version`（P1-4）与"规范化正文"函数（全半角/空白，`architecture.md:412-414`），证据子串判定与 Worker 共用同一函数；`ExtractionRequest.body` 长度与文档对齐（P2-6）。
-- **R4（复核工作流）**：先按 P0-2 定稿 `CommentIssueRead`/`IssueDetailRead`（含 `comment_id` 与原文区间）再做复核抽屉；合并冲突规则（P1-7）、split/change 必填字段（P1-9）、`expected_version` 是否强制（P2-4）需与 R1 一起在契约冻结时确定。
-
-## 六、文档与代码不一致逐条清单
+## 五、文档与代码不一致逐条清单
 
 | # | 文档位置 | 代码/事实 | 处理 |
 | --- | --- | --- | --- |

@@ -1,72 +1,18 @@
-# Week 7 Submission — Midterm Milestone Demo
+# Week 07 — Midterm / 期中里程碑
 
-> Delete prompt text before final submission if desired.
+## English
 
-## Team information
+The [Week 07 project record](week07/README.md) describes the running review-processing path,
+current integration, verification evidence, remaining work and known limitations.
 
-- Team name:
-- Repository:
-- Checkpoint tag: `w07-midterm`
-- Team members:
+### AI Use Statement
 
-## 1. What currently works
+We used ChatGPT to improve and polish the documentation and to assist with code scaffolding and testing.
 
-Describe the working vertical slice.
+## 中文
 
-## 2. Live demo sequence
+[Week 07 项目记录](week07/README.md)说明可运行的评论处理流程、当前整合、验证证据、后续工作及已知限制。
 
-List the exact sequence you plan to show.
+### AI 使用说明
 
-1.
-2.
-3.
-4.
-5.
-
-## 3. Current implementation status
-
-### Implemented
-
-### Partially implemented
-
-### Not yet implemented
-
-## 4. Architecture status
-
-What changed from the Week 4 plan?
-
-## 5. Current evidence of integration
-
-List concrete integrated elements now present in the repository.
-
-- DB write path:
-- API path:
-- worker path:
-- AI path:
-- operational signal:
-
-## 6. Testing / verification performed
-
-List the most meaningful checks completed so far.
-
-## 7. Risks and revised scope
-
-- Biggest current risk:
-- Biggest scope cut already made:
-- Biggest scope cut still available if needed:
-
-## 8. Plan from Week 7 to Week 13
-
-What will be completed next, in priority order?
-
-## 9. Artifact index
-
-- `docs/architecture.md`
-- `docs/operations.md`
-- slides:
-- screenshots:
-- other:
-
-## 10. AI Use Statement
-
-Summarize any generative AI assistance used in preparing this milestone and how the team verified the work.
+我们使用 ChatGPT 完善和润色文档说明，并辅助进行代码框架构造和测试。

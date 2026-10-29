@@ -1,123 +1,81 @@
-# 当前进度
+# Development Progress / 开发进度
 
-> 看板式清单，完成一项勾一项；命令均在仓库根目录执行。
+## English
 
-## 1. 一句话状态
+### 1. Current snapshot — 29 October 2026
 
-单平台初版的最小闭环已经跑通：**CSV 批次接入 → 评论/版本入库 → 逐条 Job → Worker 调用 AI 提取问题与证据 → 问题组聚合 → 静态 UI 查看/筛选/搜索/详情**；真实 PostgreSQL 上完成了迁移、清库重建、种子数据和端到端验证。当前 AI 仍是规则基线；Worker 已完成核心可靠性，前端仍是 mock 数据，真实平台入口与质量评测待补。
+The working path is review submission → database/job creation → background rule analysis →
+evidence validation → saved results shown in the midterm demo. The original product frontend still
+uses mock data. The midterm interface uses the project backend and its own PostgreSQL database.
 
-## 2. 已完成
+### 2. Completed and remaining work
 
-### 2.1 契约与数据层
-
-| 事项 | 证据 / 位置 |
-| --- | --- |
-| 数据模型与接口契约（9 张表、状态机、错误码、读模型） | `docs/architecture.md` §6–§9；`services/common/models.py`、`schemas.py` |
-| 迁移链：0002 建评论域 + 0003 移除旧 `Case/triage` 骨架、收敛 `jobs` | `alembic/versions/20261027_0002_review_management.py`、`20261027_0003_remove_legacy_case_domain.py` |
-| 旧域清理 | `Case`/`triage` 已从 models/schemas/api/worker/ai/seed/tests 移除；`jobs.comment_id` 必填；`job_type` 仅 `extract_issues` |
-| 唯一约束 / CHECK / 部分唯一索引 | 评论来源唯一键、`ck_jobs_status`、`ck_jobs_job_type`、单评论仅一个活跃 Job、`analysis_status` CHECK |
-| 迁移可逆 | 真实 PostgreSQL `downgrade 20260713_0001 → upgrade head` 均通过；离线 SQL 亦通过 |
-
-### 2.2 R1 数据与接入
-
-| 事项 | 详情 |
-| --- | --- |
-| **CSV 内容结构定义** | 必填列：`shop_id`、`product_id`、`body`；可选列：`source_review_id`、`review_date`、`rating`；`platform` 由请求传入 |
-| **字段校验** | `shop_id`/`product_id` 非空且 ≤64 字符；`body` 非空且 ≤2000 字符；`review_date` 支持 ISO 日期/日期时间；`rating` 为 0–5 整数；单批 ≤5000 行 |
-| **解析与规范化** | `services/api/app/ingestion.py` 的 `parse_csv`：表头校验、逐行解析、去 BOM/空白、正文归一化、计算 `content_hash`；缺 `source_review_id` 时生成稳定 `synth:<hash>` 并标记 `dedupe_mode=content_hash` |
-| **逐行错误清单** | `batch_rows` 落库行号、列名、错误码（`required`/`too_long`/`invalid_date`/`invalid_rating` 等）；有效行继续入库，批次汇总为部分失败 |
-| **去重与版本** | 有来源编号按 `(platform, shop, product, source_review_id)` 去重；无来源编号按内容 hash；正文变化追加 `comment_revisions` 并推进 `version`，重复行计入 `duplicate_rows` |
-| **批次幂等** | `POST /review-batches` 支持 `idempotency_key`；重复提交返回同一批次，不重复建评论/Job |
-| **建 Job** | 每条有效评论同一事务内建一个 `extract_issues` Job，批次只做汇总；批次进度由 Job/评论状态派生（`imported`/`completed`/`partially_failed`） |
-| **CSV 上传验证** | `tests/integration/test_api_case_flow.py` 覆盖批次上传建评论/Job、部分行错误清单、`Idempotency-Key` 幂等、重复上传去重、缺列 422；`tests/integration/test_e2e_flow.py` 覆盖上传 → Worker → AI → 问题组；`tests/unit/test_ingestion.py` 覆盖解析、缺来源编号、坏行保留 |
-| **读接口** | 批次进度与错误清单、评论列表/详情（含版本、证据、最近分析）、问题组列表/详情、任务详情、统计汇总；见 `services/api/app/main.py` |
-| **重置与种子** | `scripts/reset_database.py`（删 schema 重建 + 迁移）、`scripts/seed_demo_data.py`（6 评论 / 3 问题组 / 6 Job，幂等）；`make reset-db`、`make seed` |
-| **待补** | 真实平台入口（商家 CSV / 授权接口）、multipart 文件上传、错误清单 CSV 导出、cursor 分页；当前使用 JSON `csv_text` + `limit/offset` |
-
-### 2.3 R2 流水线（已更新）
-
-- 已实现：状态同步、到期领取、有限重试、原子回收、领取凭据保护、人工结论保护、正文变化重排队、事务回滚、安全错误记录和 Worker 指标。
-- R1 评论更新补行锁；问题统计排除 superseded 建议。
-- 验证：58 项 unit/integration（含6项 PostgreSQL）及5项真实 HTTP smoke 通过；迁移往返、正常退出通过。
-- 待扩展：人工任务重试/恢复 API、持久化人工任务审计、批量手工重放。
-- 详见 [r2-implementation.md](r2-implementation.md)。
-
-### 2.4 R3 AI 服务
-
-| 事项 | 详情 |
-| --- | --- |
-| 规则基线 | `services/ai/app/main.py` 的 `/extract-issues`：受控类别（`services/common/categories.py`，`CATEGORY_VERSION=v1`）、关键词匹配、证据句定位、`has_issue` 三态输出 |
-| 输出契约 | `ExtractionResult`（has_issue / issues[] / evidence / category / confidence）；与 R2 的落库逻辑通过 HTTP 契约解耦 |
-| 占位能力 | `/suggest-groups` 目前为占位，用于后续同商品归组 |
-| 待补 | LLM 替换规则基线、统一证据校验函数、同商品语义归组、标注集与 P/R/F1、成本记录 |
-
-### 2.5 R4 产品端
-
-| 事项 | 详情 |
-| --- | --- |
-| 五页静态界面 | 批次 / 评论 / 问题组 / 人工复核 / 关于；原生 HTML/CSS/JS，无构建、无外部 CDN；API 挂载 `/ui/` |
-| 问题组页 | 顶部搜索 + 状态分段筛选 + 类别/商品筛选；状态色卡片（待确认/已确认/已解决/已忽略）；高/中/低优先级标签；标题/摘要/证据/统计；移动端折叠筛选与横向状态筛选 |
-| 问题组详情 | `#/issues/{id}`：状态色 hero、判断依据、AI 建议关联、处理记录时间线、相关评论（评分/平台/日期/证据高亮）；确认/跟进/驳回 mock 动作；返回列表保留筛选与滚动位置 |
-| 动效 | 页面进入、卡片错峰入场、筛选刷新、状态指示器滑动、悬停/按下反馈、减少动态效果适配 |
-| 其他页面 | 批次上传（mock）、评论三条件筛选与证据高亮、人工复核接受/拒绝/改判 + 本地审计、关于页 API/文档/成员 |
-| 待补 | `POST /issues/{id}/actions`、`/comment-issues/{id}/decision`、真实接口替换 mock、e2e 演示脚本 |
-
-### 2.6 集成与质量
-
-| 事项 | 结果 |
-| --- | --- |
-| 真实 PostgreSQL 清库重建 | 9 张业务表 + `alembic_version`；`cases` 已不存在；种子 comments=6 / issues=3 / jobs=6 |
-| 真实端到端 | 真实 Docker 栈上传 3 条评论 → Worker → AI：3 条 analyzed、问题组与证据 `evidence_verified`、重复上传 `duplicate_rows=3` |
-| 自动化测试 | `pytest -q`：58 passed（含6项真实PostgreSQL测试）；另有5项smoke通过；单元覆盖 CSV 解析/校验、AI 规则；集成覆盖批次、幂等、错误清单、评论/问题组、UI、端到端流程 |
-| 冒烟 | `SMOKE_BASE_URL=http://127.0.0.1:8000 pytest tests/smoke`：5 passed（真实HTTP，含故障注入） |
-| 迁移 | 离线 SQL 与真实 PostgreSQL 往返均通过 |
-| 文档 | architecture / README / operations / team-division / progress 重写并与代码对齐；`review/` 仅保留评审与过程文档 |
-
-## 3. 待完成
-
-| 线 | 事项 | 说明 |
+| Area | Completed | Remaining |
 | --- | --- | --- |
-| R1 | 真实平台入口验证、multipart 文件上传、错误清单 CSV 导出、cursor 分页 | 目前 JSON 内嵌 CSV + limit/offset |
-| R2 | 人工 retry/recover API、持久化人工任务审计、批量手工重放 | 核心可靠性与指标已实现，详见 R2 文档 |
-| R3 | LLM 提取、统一证据校验、同商品归组、标注集与 P/R/F1、成本记录 | 当前为关键词规则基线 |
-| R4 | 复核动作 API、问题组/评论接口接真实数据、e2e 演示 | 读接口已存在；前端 mock 动作待替换 |
-| 全组 | 平台数据授权与样本获取、演示材料与最终报告 | 不依赖代码的收尾项 |
+| Data/ingestion | Nine domain tables, migrations, CSV/JSON checks, row errors, deduplication, revisions and queries | Real platform samples, direct file upload, error export and pagination improvements |
+| Background jobs | Claim ownership, retries, expiry recovery, transactional saves, evidence validation, changed-input requeue and metrics | Manual task retry/recover endpoints, batch replay and persistent task-operation audit |
+| Analysis | Chinese/English rule issues, three-way result and source evidence; category grouping | LLM extraction, semantic grouping, labelled evaluation and cost records |
+| Product frontend | Five-page layout, filtering/detail views and mock review interactions | Live API data and persistent human decisions/follow-up |
+| Midterm demo | Separate source build/database, Chinese and English URLs, normal/retry/failure scenarios, startup/check/stop scripts | No further demo features planned for this milestone |
 
-## 4. 本地验证命令
+Members: FEI, Wenxiang; XIANG, Ke; XU, Chao; ZHANG, Mingyang.
 
-```bash
-# 数据库（Docker Compose）
-docker compose up -d db
-docker compose run --rm api alembic upgrade head
-docker compose run --rm api python scripts/reset_database.py --yes   # 清库重建（删除全部数据）
-docker compose run --rm api python scripts/seed_demo_data.py         # 演示数据
+A known limitation from demo use is missed warranty/after-sales complaints, including refusal to
+provide a warranty. Results may be `no` or `unknown`. Improving rule coverage and measuring missed
+and wrongly flagged complaints are analysis work; the current milestone remains a processing demo.
 
-# 服务
-docker compose up --build
-# API: http://localhost:8000/docs   UI: http://localhost:8000/ui/
+### 3. Verification
 
-# 测试
-make test            # unit + integration（内存 SQLite，无需数据库）
-SMOKE_BASE_URL=http://localhost:8000 pytest tests/smoke -q
-```
+Recorded checks on 29 October: 94 unit/integration tests including six PostgreSQL tests; five real
+HTTP smoke tests; migration round-trip and graceful shutdown; ten bilingual demo cases;
+restart persistence of five jobs/eight analysis attempts in an isolated test run.
+The R2 statement coverage record is 92%; it is not an analysis-quality score.
+The later delivery-rule extension passed 78 analysis unit tests and four live demo regressions,
+separately from the earlier full-suite run. The developer checked English-page buttons.
+Commands, conditions and the result screenshot are indexed in the
+[verification record](../templates/submissions/week07/assets/verification.md).
 
-## 5. 验证记录
+### 4. Next steps
 
-| 检查 | 结果 |
-| --- | --- |
-| 单元 + 集成测试 | 58 passed（含6项真实PostgreSQL测试）；另有5项smoke通过 |
-| 真实迁移往返 | `downgrade 20260713_0001` → `upgrade head` 均通过，最终版本 `20261027_0003` |
-| 真实清库重建 | 9 张业务表 + `alembic_version`；`cases` 不存在 |
-| 真实种子数据 | comments=6 / issues=3 / jobs=6（1 条待分析） |
-| 真实端到端 | 上传 → Worker → AI → 问题组/证据全部通过；重复上传去重 |
-| 真实 smoke | 5 passed |
-| UI | 桌面/移动端/筛选/搜索/已忽略/详情均验证；无控制台错误、无横向溢出 |
-| 迁移离线 SQL | upgrade / downgrade 均 EXIT=0 |
+1. Collect representative reviews and evaluate missed and wrongly flagged complaints.
+2. Implement and evaluate model extraction and semantic grouping.
+3. Connect the product frontend and persist human review and follow-up.
+4. Add manual task replay and task-operation records.
 
-## 6. 交接注意
+## 中文
 
-1. 本次交付已提交到本地 git，`main` 工作区干净；远程推送由团队决定。
-2. **迁移一旦 apply，不再改历史**：后续字段写 0004+；本地重置用 `make reset-db`。
-3. 契约变更走 `docs/team-division.md` §5 流程；共享文件单写者（R1）。
-4. `frontend/` 目前是 mock 数据；真实接口由 R4 后续接入。
-5. 评审/过程文档保留在 `review/`；工具脚本与中间产物已按整理要求清理。
+### 1. 当前状态——2026 年 10 月 29 日
+
+已接通评论提交 → 入库建任务 → 后台规则分析 → 证据检查 → 结果保存并在期中 Demo 展示。
+原产品前端仍使用模拟数据。期中界面使用项目后台和独立的 PostgreSQL 数据库。
+
+### 2. 已完成与待完成
+
+| 方面 | 已完成 | 待完成 |
+| --- | --- | --- |
+| 数据／接入 | 九张业务表、迁移、CSV／JSON 检查、错误行、去重、版本和查询 | 真实平台样本、直接文件上传、错误导出和分页改进 |
+| 后台任务 | 领取归属、重试、过期回收、事务保存、证据检查、正文更新重排队和指标 | 人工任务重试／回收接口、批量重放、持久化任务操作审计 |
+| 分析 | 中英文规则、三态结果和原文证据；按类别归组 | 大模型提取、语义归组、标注评测与成本记录 |
+| 产品前端 | 五页布局、筛选／详情和模拟复核交互 | 真实接口数据、人工决定与跟进落库 |
+| 期中 Demo | 独立源码构建／数据库、中英文地址、正常／重试／失败场景、启停与检查脚本 | 本阶段不再扩展演示功能 |
+
+成员：FEI, Wenxiang；XIANG, Ke；XU, Chao；ZHANG, Mingyang。
+
+Demo 使用中已发现拒绝保修等售后投诉可能漏检，结果可能是 `no` 或 `unknown`。
+扩展规则和评估漏检、误判属于后续分析工作，本阶段仍以处理流程演示为主。
+
+### 3. 验证情况
+
+10 月 29 日已有记录：94 项单元／集成（含六项 PostgreSQL）、5 项真实 HTTP 冒烟、
+迁移往返及正常退出、独立 Demo 十例双语，以及一次隔离测试中重启后保留五个任务／八次分析。
+R2 语句覆盖率记录为 92%，不是分析准确率。
+后续物流规则扩展另通过 78 项分析单元测试和四例真实 Demo 回归，与较早完整测试分开记录。
+开发者已检查英文页按钮。
+命令、条件和结果截图见 [验证记录](../templates/submissions/week07/assets/verification.md)。
+
+### 4. 下一步
+
+1. 收集有代表性的评论，评估漏检和误判。
+2. 实现并评测模型提取和语义归组。
+3. 产品前端接真实接口，保存人工复核和跟进记录。
+4. 增加人工任务重放及任务操作记录。

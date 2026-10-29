@@ -1,5 +1,10 @@
 # 问题组页面 UI 改进
 
+> Historical engineering review; findings describe the version reviewed at that time.
+> Current implementation: [Architecture](../docs/architecture.md) and [Progress](../docs/progress.md).
+>
+> 历史工程评审，结论对应当时受评版本。当前实现见[系统架构](../docs/architecture.md)和[项目进度](../docs/progress.md)。
+
 ## 任务与约束
 
 用户要求：

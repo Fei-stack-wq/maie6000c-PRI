@@ -18,7 +18,7 @@ def test_extract_issues_finds_quality_problem_with_evidence():
     quality = [issue for issue in result.issues if issue.category_id == "quality"]
     assert quality, "expected a quality issue"
     assert quality[0].evidence_text in "拉链拉到一半就卡住，拉不上，只能退货。"
-    assert result.model_version == "rule-baseline-1"
+    assert result.model_version == "rule-baseline-2"
 
 
 def test_extract_issues_returns_no_for_positive_comment():

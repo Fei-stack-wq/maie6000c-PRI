@@ -1,79 +1,15 @@
-## Summary
+## Summary / 改动摘要
 
-Describe the change in 2 to 5 concise bullet points.
+## Changes / 具体改动
 
-- 
-- 
-- 
+## Verification / 验证结果
 
-## Type of change
+## Operational impact / 运行影响
 
-Mark the relevant type(s).
+## Known limitations / 已知限制
 
-- [ ] feature
-- [ ] bug fix
-- [ ] documentation update
-- [ ] test update
-- [ ] refactor
-- [ ] submission or milestone update
-- [ ] other
+## AI Use Statement / AI 使用说明
 
-## Related issue or context
+We used ChatGPT to improve and polish the documentation and to assist with code scaffolding and testing.
 
-Link any relevant issue(s) or milestone context.
-
-- Issue:
-- Milestone:
-- Other context:
-
-## What was changed
-
-Describe the main implementation or documentation changes.
-
-## How this was verified
-
-List the checks you performed.
-
-- [ ] project starts locally
-- [ ] relevant tests pass
-- [ ] new or changed behavior was manually checked
-- [ ] documentation was updated where needed
-- [ ] no secrets or unsafe data were added
-
-Commands run:
-
-```bash
-# paste commands here
-```
-
-## Operational impact
-
-If relevant, describe any impact on:
-
-- database schema or migrations
-- environment variables
-- deployment/run instructions
-- worker behavior
-- logs or metrics
-- `docs/operations.md`
-
-## Milestone checklist
-
-If this PR is related to a course milestone, confirm the relevant items.
-
-- [ ] relevant submission folder was updated
-- [ ] required docs were updated
-- [ ] milestone-ready state is reviewable
-- [ ] required tag will be created when appropriate
-
-## AI use disclosure
-
-If generative AI tools materially assisted this work, briefly note the affected area(s) and confirm that the work was reviewed and understood.
-
-Affected files or areas:
-
-Verification performed:
-
-## Reviewer notes
-
-Anything the reviewer should focus on:
+我们使用 ChatGPT 完善和润色文档说明，并辅助进行代码框架构造和测试。

@@ -1,10 +1,95 @@
-# 从评论导入到结果保存：R2 的运行逻辑
+# R2 Execution Chain / R2 运行链条
+
+## English
+
+Function names include their files. `api/main.py`, `worker/main.py` and `ai/main.py` refer to
+`services/api/app/`, `services/worker/app/` and `services/ai/app/`. The other worker modules are
+under `services/worker/app/`. Follow one review about a backpack zipper getting stuck.
+
+### 1. R1 saves the review and schedules work
+
+`api/main.py.create_batch()` receives CSV text and passes it to `ingestion.py.parse_csv()`.
+`ingestion.py._build_comment()` checks each row. Valid rows go to `ingestion.py.ingest_comments()`,
+which saves new comments, ignores unchanged duplicates and records revisions for changed text.
+`ingestion.py._ensure_job()` uses `ingestion.py._active_job()` to avoid a second active job for the
+same comment. The API commits the batch, comments, jobs and errors before returning. A new comment
+is `queued`; its job is `pending`. Analysis has not started.
+
+### 2. R2 claims a job
+
+`worker/main.py.run_worker()` loops over `worker/main.py.run_once()`. Each round calls
+`worker/main.py.recover_stale_jobs()` / `jobs.py.recover_stale_jobs()`, updates counts through
+`metrics.py.update_queue_metrics()`, then uses `worker/main.py.claim_next_pending_job()` /
+`jobs.py.claim_next_pending_job()` to claim a due pending job. The transaction changes job/comment
+states to `claimed`/`analyzing`, increments attempts and records expiry. Its returned `JobClaim`
+identifies this specific claim. `worker/main.py.process_job(claim)` retains it throughout the attempt.
+
+### 3. R2 reads fixed input and calls analysis
+
+`jobs.py.load_input_for_claim()` checks ownership with `jobs.py.lock_owned_job()`.
+`analysis.py.load_analysis_input()` captures the body, source scope, hash and revision markers.
+After that database session closes, `analysis.py.call_ai_service()` sends the snapshot to
+`/extract-issues`. In the AI service, `ai/main.py.extract()` calls `ai/main.py.extract_issues()`.
+Current analysis retains Chinese keywords and adds `english.py.find_issue()` for English phrases.
+`ai/main.py._evidence_at()` takes the evidence from the original text. R2 does not hold a database
+lock during the HTTP call.
+
+### 4. R2 checks the reply and evidence
+
+`analysis.py.validate_ai_result()` checks the response shape, comment ID, versions, categories and
+result consistency. `analysis.py.verify_evidence()` locates each quote in the same submitted text.
+Unlocated evidence is discarded and the verdict becomes `unknown`. Valid `no` and `unknown`
+responses are successful analyses; invalid output or request errors take the failure path.
+
+### 5. R2 saves a current result
+
+`jobs.py.complete_job()` checks `jobs.py.lock_owned_job()` again and reloads current input with
+`analysis.py.load_analysis_input()`. Only a matching claim and input may become the current result.
+`jobs.py._record_run()` adds the analysis record, then `jobs.py.save_issue_links()` obtains
+`jobs.py._group_lock()`, supersedes untouched AI suggestions with `jobs.py._supersede_suggestions()`,
+and saves category-based candidate groups and evidence links. Human decisions remain unchanged.
+The comment becomes `analyzed`, the job becomes `completed`, and `jobs.py._clear_claim()` clears
+claim fields. All result changes commit together; a saving error rolls back partial work.
+
+### 6. Queries and the demo display the saved result
+
+`api/main.py.read_comment()`, `api/main.py.read_issue()` and `api/main.py.read_job()` expose results.
+`api/main.py.read_batch_progress()` / `api/main.py._batch_progress()` derive batch progress.
+The midterm controller's `app.py.read_state()` reads stored results for the demo page.
+The original product frontend still uses mock data; its real queries and review writes remain R4 work.
+
+### 7. Errors return work to the same processing path
+
+`policy.py.classify_error()` gives the error a code, retry decision and short summary.
+`jobs.py.handle_job_failure()` checks the original claim and current input, then uses
+`jobs.py._record_run()` to record failure when an input snapshot exists.
+`policy.py.should_retry()` checks error type and budget; `policy.py.calculate_retry_delay()` gives
+the next-run time. Retry restores `pending`/`queued`, and the normal claim function picks the job up
+later. Exhausted or non-retryable work becomes finally failed. If database recording is unavailable,
+the claim is left for expiry recovery. First failure followed by success leaves two analysis records.
+
+### 8. Recovery handles interruption
+
+`jobs.py.recover_stale_jobs()` requeues an expired claim if attempts remain, otherwise fails it.
+Recovery does not increment attempts. A subsequent claim has a new identity, so a late old worker
+is rejected by `jobs.py.lock_owned_job()` for both success and failure writes.
+
+### 9. Changed text is analysed again
+
+When `jobs.py.complete_job()` or `jobs.py.handle_job_failure()` finds different current input,
+`jobs.py._requeue_changed_input()` clears old claim/current-result fields and resets the job budget.
+It supersedes untouched suggestions while preserving human decisions. The next normal round analyses
+the new text. If execution was interrupted after R1 marked the new text queued,
+`jobs.py.recover_stale_jobs()` also preserves that new input's chance to run.
+
+## 中文
+
 
 本文中的函数都用“文件名.函数名”标注。为区分几个同名的 main.py，接入服务写作 `api/main.py`，后台入口写作 `worker/main.py`，分析服务写作 `ai/main.py`。它们分别位于 `services/api/app/`、`services/worker/app/` 和 `services/ai/app/`。文中的 `jobs.py`、`analysis.py` 和 `policy.py` 都位于 `services/worker/app/`。
 
 下面以“这个背包的拉链拉到一半就卡住了”这条评论，说明当前代码怎样完成一次处理。
 
-## 1. R1 导入评论，为 R2 准备分析任务
+### 1. R1 导入评论，为 R2 准备分析任务
 
 用户提交 CSV 后，请求首先进入 `api/main.py.create_batch()`。这个函数负责接收一次导入，创建批次记录，再把 CSV 内容交给 `ingestion.py.parse_csv()` 解析。这里的 `ingestion.py` 位于 `services/api/app/`。
 
@@ -18,7 +103,7 @@
 
 **R1 给 R2 准备的是两样东西：Comment 保存“要分析的评论”，Job 表示“需要分析这条评论”。**
 
-## 2. R2 发现任务，领取这一条评论的工作单
+### 2. R2 发现任务，领取这一条评论的工作单
 
 后台程序从 `worker/main.py.run_worker()` 开始运行。它会持续调用 `worker/main.py.run_once()`，一轮一轮地检查有没有工作需要处理。
 
@@ -32,7 +117,7 @@
 
 接着，`worker/main.py.run_once()` 将这份凭据交给 `worker/main.py.process_job(claim)`，开始处理这一条评论。如果本轮没有领到任务，外层程序就等待一段时间，再检查下一轮。
 
-## 3. R2 读取本次正文，再把材料交给 R3
+### 3. R2 读取本次正文，再把材料交给 R3
 
 `worker/main.py.process_job(claim)` 是单条任务的协调者。它先调用 `jobs.py.load_input_for_claim()`，准备本次分析需要的材料。
 
@@ -44,11 +129,11 @@
 
 读取结束后，数据库会话关闭并释放锁。然后，`worker/main.py.process_job(claim)` 调用 `analysis.py.call_ai_service()`，将这份固定输入中的评论编号、商品编号和正文发送给 R3 的 `/extract-issues` 接口。
 
-对端由 `ai/main.py.extract()` 接收请求，再调用 `ai/main.py.extract_issues()` 分析评论。当前代码使用关键词规则，通过 `ai/main.py._find_evidence()` 找到原文片段，返回是否有问题、问题类别、描述和证据。
+对端由 `ai/main.py.extract()` 接收请求，再调用 `ai/main.py.extract_issues()` 分析评论。当前代码保留中文关键词，并通过 `english.py.find_issue()` 识别英文表达，再由 `ai/main.py._evidence_at()` 提取原文证据，返回是否有问题、问题类别、描述和证据。
 
 因此，这一步的分工是：**R2 负责把材料正确送出去，R3 负责给出分析内容。** 后续 R3 换成大模型时，只要保持接口格式，R2 仍可沿用这条处理链。
 
-## 4. R2 检查回复，确认结果能否使用
+### 4. R2 检查回复，确认结果能否使用
 
 收到 R3 的回复后，`analysis.py.call_ai_service()` 检查 HTTP 是否成功、能否解析 JSON，再把原始结果和调用耗时返回给 `worker/main.py.process_job(claim)`。
 
@@ -60,7 +145,7 @@
 
 这里需要区分：“没有发现问题”和“无法判断”都可以是有效的分析结果，不一定表示程序失败；调用超时、返回格式错误等，才会转入异常处理。
 
-## 5. R2 再检查一次，然后把结果完整保存
+### 5. R2 再检查一次，然后把结果完整保存
 
 取得检查后的结果，`worker/main.py.process_job(claim)` 会调用 `jobs.py.complete_job()`，准备写入数据库。
 
@@ -80,15 +165,17 @@
 
 **分析记录、问题组、证据、评论结果和任务完成状态一起提交。** 如果保存中途出错，就回滚这组修改，避免出现“任务显示成功，但结果只保存了一半”。
 
-## 6. R4 通过查询接口看到保存结果
+### 6. R4 通过查询接口看到保存结果
 
 结果保存后，前端可以通过 `api/main.py.read_comment()` 查询评论和分析记录，通过 `api/main.py.read_issue()` 查询问题组及原文证据，通过 `api/main.py.read_job()` 查询任务状态。
+
+期中 Demo 通过 `demo/midterm/app.py.read_state()` 读取同一数据库的已保存状态并展示。原五页产品前端仍使用模拟数据，不能把小 Demo 的接入算作原前端已完成。
 
 批次进度则由 `api/main.py.read_batch_progress()` 调用 `api/main.py._batch_progress()` 汇总得到，R2 不再另外维护一份批次完成计数。
 
 因此，R2 与 R4 的连接方式是：**R2 把结果存进数据库，查询接口把结果交给页面，再由人工查看、确认和跟进。** 原项目前端连接真实数据仍属于 R4 的工作；AI 不会自动把问题确认或标记为已解决。
 
-## 7. 如果调用失败，R2 怎样回到这条正常链
+### 7. 如果调用失败，R2 怎样回到这条正常链
 
 假设等待 R3 时发生超时，异常会回到 `worker/main.py.process_job(claim)`。它先调用 `policy.py.classify_error()`，把异常整理成错误码、是否可重试和安全错误摘要，再把这些信息交给 `jobs.py.handle_job_failure()`。
 
@@ -104,7 +191,7 @@ Worker 随后可以处理其他任务。到了时间，`jobs.py.claim_next_pendi
 
 如果数据库也不可用，连失败记录都写不进去，`worker/main.py.process_job(claim)` 会留下简短日志并结束本次尝试，后续依靠任务到期回收；这种情况下不能保证留下完整的分析记录。
 
-## 8. 如果 Worker 中断，任务怎样继续
+### 8. 如果 Worker 中断，任务怎样继续
 
 程序被强制关闭时，可能来不及进入上述失败处理，任务会停留在 `claimed`。
 
@@ -114,7 +201,7 @@ Worker 随后可以处理其他任务。到了时间，`jobs.py.claim_next_pendi
 
 所以，回收与归属检查共同完成一件事：**让未完成的任务继续执行，同时防止旧执行覆盖新执行的结果。**
 
-## 9. 如果处理中正文更新，旧结果怎样处理
+### 9. 如果处理中正文更新，旧结果怎样处理
 
 还有一种情况：送给 AI 的是“拉链卡住”，等待期间 R1 把正文更新成了“整体很好”。
 

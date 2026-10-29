@@ -1,5 +1,10 @@
 # Repo 审计：现有骨架 vs Proposal《商品评论管理与重复问题发现系统（单平台初版）》
 
+> Historical engineering review; findings describe the version reviewed at that time.
+> Current implementation: [Architecture](../docs/architecture.md) and [Progress](../docs/progress.md).
+>
+> 历史工程评审，结论对应当时受评版本。当前实现见[系统架构](../docs/architecture.md)和[项目进度](../docs/progress.md)。
+
 > 历史审计记录：记录的是改造前仓库状态，引用的 Proposal 图/提取脚本已在整理中清理；
 > 当前实现进度以 `docs/progress.md` 为准。
 

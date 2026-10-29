@@ -1,41 +1,19 @@
-# Week 3 Submission — Individual Readiness Lab
+# Week 03 — Readiness / 基础准备
 
-> Delete prompt text before final submission if desired.
+## English
 
-## Student information
+Week 03 concerns the individual environment and starter-service checks, not the team midterm implementation.
+Current project setup and checks are documented in [Operations](../../docs/operations.md).
 
-- Name:
-- Student ID:
-- Repository:
-- Checkpoint tag: `w03-readiness`
-- Commit SHA:
+### AI Use Statement
 
-## 1. What I changed
+We used ChatGPT to improve and polish the documentation and to assist with code scaffolding and testing.
 
-Describe the bounded engineering change clearly.
+## 中文
 
-## 2. Files touched
+Week 03 对应个人环境和初始服务检查，不代表团队期中实现。
+当前项目环境及检查方法见[运行说明](../../docs/operations.md)。
 
-- 
-- 
-- 
+### AI 使用说明
 
-## 3. How I verified it
-
-List the strongest checks you performed.
-
-- 
-- 
-- 
-
-## 4. Known limitations or notes
-
-Add any important limitation, assumption, or follow-up note here.
-
-## 5. AI Use Statement
-
-If generative AI tools materially assisted this work, summarize:
-
-- which tool(s) were used
-- what they were used for
-- what you verified, changed, or rejected
+我们使用 ChatGPT 完善和润色文档说明，并辅助进行代码框架构造和测试。

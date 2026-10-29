@@ -1,4 +1,87 @@
-# R2 整体运行流程图
+# R2 Function Flow / R2 函数流程图
+
+## English
+
+Nodes contain file/function names; conditions are written on the edges. Green shows normal
+processing, orange retry/failure, purple changed input, and grey adjacent services/queries.
+Arrows describe processing order, including HTTP and separate reads, rather than only direct
+Python calls. Repeated names mark different call sites. The final `run_once()` means the next poll.
+Recovery decisions stay inside `recover_stale_jobs()`; grouping and human-decision protection
+stay inside `save_issue_links()`. Current grouping is category-based. The original product UI
+is not connected; the midterm demo reads persisted results separately.
+
+[English Mermaid source](r2-flowchart.en.mmd). The saved
+[zoomable view](r2-flowchart.html) and [SVG](r2-flowchart.svg) retain the original Chinese labels.
+
+```mermaid
+flowchart TB
+    A1["api/main.py.create_batch()"] --> A2["ingestion.py.ingest_comments()"]
+    A2 --> A3["ingestion.py._ensure_job()"]
+
+    W["worker/main.py.run_worker()"] --> N["worker/main.py.run_once()"]
+    N --> REC["jobs.py.recover_stale_jobs()"]
+    REC --> MET["metrics.py.update_queue_metrics()"]
+    MET --> CLAIM["jobs.py.claim_next_pending_job()"]
+    CLAIM -->|"JobClaim returned"| PROC["worker/main.py.process_job()"]
+    CLAIM -->|"No job; poll later"| NEXT["worker/main.py.run_once()"]
+    PROC --> INPUT["jobs.py.load_input_for_claim()"]
+    INPUT --> OWN1{"jobs.py.lock_owned_job()"}
+    OWN1 -->|"Valid claim"| SNAP["analysis.py.load_analysis_input()"]
+    OWN1 -->|"Stale claim"| NEXT
+    SNAP --> CALL["analysis.py.call_ai_service()"]
+    CALL --> VALID["analysis.py.validate_ai_result()"]
+    VALID --> EVID["analysis.py.verify_evidence()"]
+    EVID -->|"Evidence checked"| COMPLETE["jobs.py.complete_job()"]
+    COMPLETE --> OWN2{"jobs.py.lock_owned_job()"}
+    OWN2 -->|"Valid claim"| CURRENT["analysis.py.load_analysis_input()"]
+    OWN2 -->|"Stale; reject write"| NEXT
+    CURRENT -->|"Input unchanged"| RECORD["jobs.py._record_run()"]
+    RECORD --> SAVE["jobs.py.save_issue_links()"]
+    SAVE --> CLEAR["jobs.py._clear_claim()"]
+    CLEAR -->|"Committed"| NEXT
+    CURRENT -->|"Input changed"| DISCARD["jobs.py._record_run()"]
+    DISCARD --> CHANGE["jobs.py._requeue_changed_input()"]
+    CHANGE -->|"Queue current input"| NEXT
+
+  A3 -.->|"Pending job persisted"| CLAIM
+
+    AI["ai/main.py.extract()"] --> RULE["ai/main.py.extract_issues()"]
+  CALL -.->|"HTTP request"| AI
+  RULE -.->|"HTTP response"| VALID
+
+    CLASSIFY["policy.py.classify_error()"] --> HANDLE["jobs.py.handle_job_failure()"]
+    HANDLE --> OWN3{"jobs.py.lock_owned_job()"}
+    OWN3 -->|"Valid claim"| FAILED_INPUT["analysis.py.load_analysis_input()"]
+    FAILED_INPUT -->|"Snapshot available"| FAILED_RUN["jobs.py._record_run()"]
+    FAILED_INPUT -->|"No snapshot"| RETRY{"policy.py.should_retry()"}
+    FAILED_RUN -->|"Input unchanged"| RETRY
+    RETRY -->|"Retry allowed"| DELAY["policy.py.calculate_retry_delay()"]
+    DELAY --> CLEAR_RETRY["jobs.py._clear_claim()"]
+    RETRY -->|"No retry"| CLEAR_FAILED["jobs.py._clear_claim()"]
+  PROC -.->|"Attempt error"| CLASSIFY
+  OWN3 -->|"Stale claim"| NEXT
+  FAILED_RUN -->|"Input changed"| CHANGE
+  CLEAR_RETRY -->|"Wait until due"| NEXT
+  CLEAR_FAILED -->|"Final failure"| NEXT
+  HANDLE -.->|"Recording failed; recover later"| NEXT
+
+    READ_COMMENT["api/main.py.read_comment()"]
+    READ_ISSUE["api/main.py.read_issue()"]
+  CLEAR -.->|"Separate read request"| READ_COMMENT
+  CLEAR -.->|"Separate read request"| READ_ISSUE
+
+  classDef context fill:#f2f4f6,stroke:#8a959f,color:#29343c;
+  classDef normal fill:#edf7f0,stroke:#497b60,color:#173d28;
+  classDef failure fill:#fff4e5,stroke:#a4783e,color:#513619;
+  classDef changed fill:#f4effb,stroke:#8a6aa6,color:#4c3567;
+  class A1,A2,A3,AI,RULE,READ_COMMENT,READ_ISSUE context;
+  class W,N,REC,MET,CLAIM,PROC,INPUT,OWN1,SNAP,CALL,VALID,EVID,COMPLETE,OWN2,CURRENT,RECORD,SAVE,CLEAR,NEXT normal;
+  class CLASSIFY,HANDLE,OWN3,FAILED_INPUT,FAILED_RUN,RETRY,DELAY,CLEAR_RETRY,CLEAR_FAILED failure;
+  class DISCARD,CHANGE changed;
+
+```
+
+## 中文
 
 [打开可缩放流程图](r2-flowchart.html) · [SVG 矢量图](r2-flowchart.svg)
 
