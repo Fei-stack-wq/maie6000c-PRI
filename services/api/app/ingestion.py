@@ -311,7 +311,7 @@ def ingest_comments(
             Comment.shop_id == parsed.shop_id,
             Comment.product_id == parsed.product_id,
             Comment.source_review_id == parsed.source_review_id,
-        )
+        ).with_for_update()
         existing = db.execute(stmt).scalars().first()
         if existing is None:
             comment = Comment(

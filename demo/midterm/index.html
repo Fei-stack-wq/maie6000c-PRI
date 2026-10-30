@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>商品评论分析与问题发现 · MAIE 6000C Demo</title>
+<style>
+:root{color-scheme:light dark;--bg:light-dark(#f5f4ef,#171b1a);--paper:light-dark(#fff,#232a27);--ink:light-dark(#20352d,#e6eee8);--muted:light-dark(#58675e,#afc0b4);--line:light-dark(#dfe6de,#415249);--green:light-dark(#236849,#8bdfad);--tint:light-dark(#eaf4eb,#233f31);--amber:light-dark(#805009,#f7c16d);--warm:light-dark(#fff3dc,#443722)}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.65 "Microsoft YaHei",system-ui,sans-serif}
+main{max-width:960px;margin:0 auto;padding:36px 28px 48px}header{display:flex;justify-content:space-between;gap:20px;align-items:center}.eyebrow{font-size:13px;letter-spacing:.09em;color:var(--muted)}.badge{font-size:13px;border:1px solid var(--line);padding:5px 12px;border-radius:30px;white-space:nowrap}
+h1{font-size:30px;line-height:1.3;font-weight:600;margin:18px 0 10px}p{margin:8px 0}.intro{color:var(--muted);margin-bottom:26px}
+.box{background:var(--paper);border:1px solid var(--line);border-radius:16px;padding:24px;margin-top:18px}
+label{display:block;font-weight:600;margin-bottom:8px}textarea,select{font:inherit;color:var(--ink);background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px;width:100%;max-width:100%}textarea{min-height:85px;resize:vertical}select{font-size:15px}
+.formrow{display:grid;grid-template-columns:1fr auto;gap:18px;align-items:end;margin-top:16px}.scenario{max-width:400px;min-width:0}.scenario label{font-size:14px;font-weight:400;color:var(--muted)}
+.actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px}button{font:inherit;padding:11px 19px;min-height:46px;border-radius:9px;border:1px solid var(--line);background:var(--paper);color:var(--ink);cursor:pointer}button.primary{background:var(--green);color:light-dark(#fff,#14291c);border-color:var(--green);font-weight:600}button:disabled{opacity:.45;cursor:default}button:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid var(--green);outline-offset:3px}
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:0;margin:28px 0 0;list-style:none}.step{border-top:3px solid var(--line);padding-top:12px}.step .n{display:block;font-size:13px;color:var(--muted)}.step strong{display:block;font-weight:600}.step .caption{font-size:13px;color:var(--muted)}.step.active{border-color:var(--green)}.step.done{border-color:var(--green)}.step.active strong,.step.done strong{color:var(--green)}.step.failed{border-color:var(--amber)}
+.now{padding:20px 22px;margin-top:22px;border-radius:12px;background:var(--tint)}.now .kicker{color:var(--muted);font-size:13px}.now h2{font-size:21px;font-weight:600;margin:4px 0 6px}.now p{margin:0}.minor{font-size:14px;color:var(--muted)}.statusline{margin-top:12px;font-size:14px}
+.results h2{font-size:19px;margin:0 0 14px}.result{border-left:3px solid var(--green);padding-left:14px;margin-top:12px}.result .evidence{display:block;margin-top:7px;background:var(--tint);padding:9px 12px;border-radius:6px}
+.history{margin-top:20px;border-top:1px solid var(--line);padding-top:16px}.history ol{margin:6px 0;padding-left:22px}.history li{margin:7px 0}details{margin-top:20px;color:var(--muted);font-size:14px}summary{cursor:pointer}code{font-size:13px;overflow-wrap:anywhere}.footer{margin-top:22px;font-size:13px;color:var(--muted)}#error{color:var(--amber);margin-top:12px}
+@media(max-width:640px){main{padding:24px 16px}h1{font-size:25px}.box{padding:18px}.steps{grid-template-columns:repeat(2,1fr);gap:18px}.formrow{grid-template-columns:1fr}header{align-items:flex-start}.badge{font-size:12px}.actions button{width:100%}}
+</style></head>
+<body><main>
+<header><span class="eyebrow">MAIE 6000C · MIDTERM DEMO</span><span class="badge">评论处理 · 实时状态</span></header><nav aria-label="Language"><a href="/zh" lang="zh-CN">中文</a> · <a href="/en" lang="en">English</a></nav>
+<h1>商品评论分析与问题发现</h1>
+<p class="intro">提交商品评论，提取问题类别与原文证据，并追踪后台任务的处理状态与重试记录。</p><p class="minor">期中独立演示 · 所有浏览器共享当前一轮，请轮流操作。</p>
+<section class="box" aria-label="评论分析">
+<label for="body">商品评论</label>
+<textarea id="body" maxlength="500">这个背包的拉链拉到一半就卡住了。</textarea>
+<div class="formrow"><div class="scenario"><label for="scenario">演示场景</label>
+<select id="scenario"><option value="normal">正常分析</option><option value="once">故障模拟：首次失败后自动重试</option><option value="fail">故障模拟：持续失败至重试上限</option></select></div></div>
+<div class="actions"><button id="save" class="primary">① 提交评论</button><button id="start" disabled>② 启动分析</button><button id="reset" hidden>开始新一轮演示</button></div>
+<p id="error" role="alert" hidden></p>
+</section>
+<ol class="steps" aria-label="处理流程">
+<li class="step" id="step1"><span class="n">01 · 输入</span><strong>评论入库</strong><span class="caption">保存评论原文</span></li>
+<li class="step" id="step2"><span class="n">02 · 任务</span><strong>任务排队</strong><span class="caption">创建异步分析任务</span></li>
+<li class="step" id="step3"><span class="n">03 · 分析</span><strong>后台处理</strong><span class="caption">提取问题并校验证据</span></li>
+<li class="step" id="step4"><span class="n">04 · 输出</span><strong>结果保存</strong><span class="caption">记录结果与处理历史</span></li>
+</ol>
+<section class="now" aria-live="polite">
+<div class="kicker">实时任务状态</div><h2 id="headline">等待提交评论</h2>
+<p id="explain">输入商品评论后，点击「① 提交评论」创建分析任务。</p>
+<div id="statusline" class="statusline" hidden></div>
+</section>
+<section id="results" class="box results" hidden><h2 id="result-title">分析结果</h2><div id="result-body"></div>
+<div id="history" class="history" hidden><strong>任务处理记录</strong><ol id="runs"></ol></div></section>
+<details><summary>演示运行说明</summary><p id="references" hidden></p>
+<p>评论导入、异步任务、结果校验与保存均由项目后台执行，页面读取数据库中的实际状态和处理记录。当前分析采用中英文关键词规则基线，尚未接入大语言模型。</p>
+<p>故障场景通过模拟分析服务错误，展示自动重试与重试上限。每次分析额外等待约 3 秒，以展示状态变化；演示使用独立示例数据库。</p>
+</details>
+<p class="footer">分析引擎：中英文规则基线 · 结果与任务记录持久化保存 · 故障场景为模拟错误</p>
+</main>
+<script>
+(() => {
+ const $ = id => document.getElementById(id);
+ let busy = false, last = null;
+ const categories = {quality:'质量', logistics:'物流', mismatch:'描述不符', usability:'使用体验', other:'其他'};
+ const reason = code => ({ai_error:'分析服务暂时不可用',ai_timeout:'等待分析服务超时',ai_invalid_output:'分析结果未通过检查',lease_expired:'上一次处理超时'})[code] || '这次处理未成功';
+ async function api(path, body) {
+   const response = await fetch(path, body === undefined ? {} : {
+     method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(body)
+   });
+   const value = await response.json();
+   if (!response.ok) throw new Error(typeof value.detail === 'string' ? value.detail : '暂时无法完成，请稍后再试');
+   return value;
+ }
+ function render(s) {
+   s.runs = s.runs || []; s.links = s.links || [];
+   last=s;
+   $('references').hidden=s.phase==='empty';
+   $('references').textContent=s.phase==='empty'?'':'批次：'+s.batch_id+' · 任务：'+s.job_id+' · 评论：'+s.comment_id;
+   const empty=s.phase==='empty', done=s.phase==='completed', failed=s.phase==='failed', terminal=done||failed;
+   $('save').disabled=busy||!empty; $('start').disabled=busy||empty||s.worker||terminal;
+   $('start').className=!empty&&!s.worker&&!terminal?'primary':'';
+   $('save').className=empty?'primary':'';
+   $('reset').hidden=!terminal; $('reset').disabled=busy;
+   $('body').disabled=!empty; $('scenario').disabled=!empty;
+   if(!empty) {$('body').value=s.body; $('scenario').value=s.scenario;}
+   ['step1','step2','step3','step4'].forEach(id=>$(id).className='step');
+   if(!empty) {
+     $('step1').classList.add('done');
+     $('step2').classList.add(s.attempts>0?'done':'active');
+     if(s.attempts>0) $('step3').classList.add(terminal?'done':'active');
+     if(terminal) $('step4').classList.add(failed?'failed':'done');
+   }
+   $('step4').querySelector('strong').textContent=failed?'失败已记录':'结果保存';
+   let title,explain;
+   if(empty) {title='等待提交评论'; explain='输入商品评论后，点击「① 提交评论」创建分析任务。';}
+   else if(done) {title='分析完成'; explain='问题类别、原文证据和处理记录已保存，可在下方查看。';}
+   else if(failed) {title='任务处理失败，已停止重试'; explain='失败原因与尝试记录已保存，可在下方查看。';}
+   else if(!s.worker) {title='评论已入库，任务等待处理'; explain='点击「② 启动分析」运行后台任务。';}
+   else if(s.phase==='claimed') {title='任务处理中'; explain='后台正在调用分析服务，随后校验原文证据并保存结果。';}
+   else if(s.attempts>0) {title='调用失败，等待自动重试'; explain=reason(s.error_code)+'。约 '+Math.ceil(s.wait)+' 秒后再次尝试。';}
+   else {title='后台已启动，等待领取任务'; explain='后台正在检查待处理队列。';}
+   $('headline').textContent=title; $('explain').textContent=explain;
+   $('statusline').hidden=empty;
+   if(!empty) $('statusline').textContent='处理尝试：'+s.attempts+' / '+s.max_attempts+' 次';
+   $('results').hidden=empty || (!terminal && !s.runs.length);
+   $('result-body').replaceChildren();
+   $('result-title').textContent=failed?'失败详情':done?'分析结果':'处理记录';
+   if(done) {
+     if(s.links.length) {
+       for(const item of s.links) {
+         const div=document.createElement('div'); div.className='result';
+         const label=document.createElement('strong'); label.textContent=categories[item.category]||item.category;
+         const title=document.createElement('p'); title.textContent=item.title;
+         const evidence=document.createElement('span'); evidence.className='evidence'; evidence.textContent='原文依据：“'+item.evidence+'”';
+         div.append(label,title,evidence); $('result-body').append(div);
+       }
+     } else {
+       const p=document.createElement('p'); p.textContent=s.has_issue==='no'?'这次分析没有发现具体问题。':'信息不足，已保存为“需要人工查看”。'; $('result-body').append(p);
+     }
+   } else if(failed) {const p=document.createElement('p');p.textContent=reason(s.error_code);$('result-body').append(p);}
+   $('history').hidden=!s.runs.length; $('runs').replaceChildren();
+   for(const run of s.runs) {
+     const li=document.createElement('li');
+     li.textContent='第 '+run.attempt+' 次分析：'+(run.status==='succeeded'?'成功，已保存结果':'失败，'+reason(run.error_code));
+     $('runs').append(li);
+   }
+ }
+ async function act(action) {
+   busy=true; $('error').hidden=true; if(last) render(last);
+   try {
+     const payload=action==='import'?{body:$('body').value,scenario:$('scenario').value}:{};
+     render(await api('/lesson/'+action,payload));
+   } catch(error) {$('error').textContent=error.message; $('error').hidden=false;}
+   finally {busy=false; if(last) render(last);}
+ }
+ $('save').addEventListener('click',()=>act('import'));
+ $('start').addEventListener('click',()=>act('start'));
+ $('reset').addEventListener('click',()=>act('reset'));
+ async function poll() {
+   if(!busy) {
+     try {render(await api('/lesson/state'));} catch(error) {$('error').textContent='暂时无法连接演示服务，请检查服务是否运行。';$('error').hidden=false;}
+   }
+   setTimeout(poll,700);
+ }
+ poll();
+})();
+</script></body></html>
+

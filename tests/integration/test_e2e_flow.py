@@ -54,10 +54,10 @@ def test_batch_to_issue_end_to_end(client, session_factory, monkeypatch):
             job = worker_main.claim_next_pending_job(db)
             if job is None:
                 break
-            jobs.append(job.id)
+            jobs.append(job)
     assert len(jobs) == 2
-    for job_id in jobs:
-        worker_main.process_job(job_id)
+    for claim in jobs:
+        worker_main.process_job(claim)
 
     progress = client.get(f"/review-batches/{batch_id}").json()
     assert progress["analyzed_rows"] == 2

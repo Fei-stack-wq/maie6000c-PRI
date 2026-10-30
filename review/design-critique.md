@@ -1,5 +1,10 @@
 # Proposal 设计评审：状态机、实体与流程的独立挑错
 
+> Historical engineering review; findings describe the version reviewed at that time.
+> Current implementation: [Architecture](../docs/architecture.md) and [Progress](../docs/progress.md).
+>
+> 历史工程评审，结论对应当时受评版本。当前实现见[系统架构](../docs/architecture.md)和[项目进度](../docs/progress.md)。
+
 > 历史评审记录：评审对象为当时的 Proposal 与配图，相关图片/脚本已在整理中清理；
 > 结论保留，作为设计决策依据。
 

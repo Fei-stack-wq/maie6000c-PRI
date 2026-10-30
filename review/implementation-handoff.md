@@ -1,5 +1,10 @@
 # 实现交接说明（契约与数据层阶段）
 
+> Historical engineering review; findings describe the version reviewed at that time.
+> Current implementation: [Architecture](../docs/architecture.md) and [Progress](../docs/progress.md).
+>
+> 历史工程评审，结论对应当时受评版本。当前实现见[系统架构](../docs/architecture.md)和[项目进度](../docs/progress.md)。
+
 > 注：本文是契约/数据层阶段的交接记录。后续 0003 已移除旧骨架，R1 接入链路、
 > Worker/AI 基线与静态 UI 均已完成；**最新状态以 `docs/progress.md` 为准**，
 > 分工边界见 `docs/team-division.md`。文内校验脚本与参考 SQL 属于当时的过程产物，
@@ -65,16 +70,7 @@ P1 中已一并处理的：`as_of/scope` 与统计契约（`QueryScope`/`StatsSu
 - `docs/operations.md`、`README.md` 重写（当前已完成）。
 - 前端 / 演示页面（当前已完成静态界面；真实接口待接入）。
 
-## 5. 接手顺序（按角色）
-
-1. **R1**：先 `git add` 本次交付物（`0002`、`assets/`、`review/`、`models/schemas/categories`、`docs/architecture.md`、`ci.yml`）；本地跑一次真实 `alembic upgrade/downgrade/upgrade`；然后按 §8.1 建批入口与查询接口。
-2. **R2**：按 §7.1/§9.1 实现原子认领、租约、fencing、重试与错误分类；`attempts` 语义见 §6.3；不要复用 legacy 的 `JobRead`。
-3. **R3**：`categories.py` 已给常量与版本；先实现"规范化正文 + 证据子串校验"函数（Worker 与 AI 共用），再实现提取与归组。
-4. **R4**：先按 `CommentIssueRead`/`IssueDetailRead` 定稿复核抽屉的数据契约（证据非空由服务端组装），再做 `issue_actions` 与页面。
-
-## 6. 注意
+## 5. 数据库运行边界
 
 - **不要再改 0002/0003**：迁移历史已 apply；后续字段用 0004+。
-- 交付物已提交到本地 git；远程推送由团队决定。
 - 迁移目标 PostgreSQL；SQLite 只用于 `create_all` 单测。
-

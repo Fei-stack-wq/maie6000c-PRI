@@ -1,53 +1,13 @@
-# Final Technical Brief and Postmortem
+# Technical Brief / 技术说明
 
-> Delete prompt text before final submission if desired.
+## English
 
-## 1. Executive summary
+The current system design and data flow are in [Architecture](../../docs/architecture.md),
+startup and monitoring in [Operations](../../docs/operations.md), and recorded tests in the
+[verification record](week07/assets/verification.md). Analysis quality, semantic grouping and the
+complete human-review workflow remain under development; a final evaluation is not yet available.
 
-What system was built, for whom, and for what workflow?
+## 中文
 
-## 2. Final architecture
-
-Describe the final architecture, major components, and data flow.
-
-## 3. AI component in context
-
-What does the AI-enabled function do, and where does it appear in the workflow?
-
-## 4. Evidence-based evaluation
-
-Use concrete evidence where possible.
-
-### Functionality
-
-### Reliability
-
-### Performance
-
-### Maintainability / reproducibility
-
-### Operational behavior
-
-### Privacy / security baseline
-
-## 5. Engineering trade-offs
-
-Describe the most important trade-offs the team made.
-
-## 6. Postmortem
-
-Explain:
-
-- what changed
-- what broke
-- what was cut
-- what assumptions were wrong
-- what the team learned
-
-## 7. Next steps
-
-What would you do next with limited additional time?
-
-## 8. Appendix (optional)
-
-Add logs, screenshots, timings, test summaries, or supporting tables as needed.
+当前系统设计和数据流见[系统架构](../../docs/architecture.md)，启动及监控见[运行说明](../../docs/operations.md)，
+已执行测试见[验证记录](week07/assets/verification.md)。分析质量、语义归组和完整人工复核流程仍在开发，尚无最终评测结果。

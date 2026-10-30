@@ -1,0 +1,39 @@
+# Separate from compose.yaml: independent DB, volume and loopback-only web port.
+name: maie6000c-midterm
+services:
+  midterm-db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: midterm_demo
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: midterm-local
+    volumes:
+      - midterm_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d midterm_demo"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+  midterm-demo:
+    build:
+      context: .
+      dockerfile: demo/midterm/Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:midterm-local@midterm-db:5432/midterm_demo
+      AI_SERVICE_URL: http://127.0.0.1:18100
+    ports:
+      - "127.0.0.1:${MIDTERM_DEMO_PORT:-18717}:18707"
+    depends_on:
+      midterm-db:
+        condition: service_healthy
+    stop_grace_period: 45s
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:18707/health/ready')"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+      start_period: 10s
+
+volumes:
+  midterm_data:

@@ -1,57 +1,20 @@
-# Week 13 Submission — Final Team Project
+# Week 13 — Planned Final Milestone / 计划中的最终里程碑
 
-> Delete prompt text before final submission if desired.
+## English
 
-## Team information
+The final milestone remains future work. Current implementation and outstanding work are recorded
+in [Progress](../../docs/progress.md). The planned final scope includes evaluated analysis/grouping,
+live product-interface data and persistent human review. No final acceptance results are reported.
 
-- Team name:
-- Repository:
-- Checkpoint tag: `w13-final`
-- Team members:
+### AI Use Statement
 
-## 1. Final supported workflow
+We used ChatGPT to improve and polish the documentation and to assist with code scaffolding and testing.
 
-Describe the final end-to-end workflow the system supports.
+## 中文
 
-## 2. Demo order
+最终里程碑尚未完成，当前实现和待完成项见[项目进度](../../docs/progress.md)。
+计划中的最终范围包括经过评测的分析／归组、产品界面真实数据接入和人工复核落库；当前没有最终验收结果。
 
-List the exact sequence your team will demonstrate.
+### AI 使用说明
 
-1.
-2.
-3.
-4.
-5.
-6.
-7.
-
-## 3. System components
-
-List the final main components and their roles.
-
-## 4. Testing and verification summary
-
-List the strongest evidence that the system works as claimed.
-
-## 5. Reproducibility and operations
-
-Point to the main run instructions and operational docs.
-
-- `README.md`
-- `docs/operations.md`
-
-## 6. Known limitations
-
-State the most important limitations honestly.
-
-## 7. Final artifact index
-
-- `docs/architecture.md`
-- `docs/operations.md`
-- `docs/adrs/`
-- `submissions/week13/final-technical-brief.md`
-- other final artifacts:
-
-## 8. AI Use Statement
-
-Summarize any generative AI assistance used in preparing this milestone and how the team verified the work.
+我们使用 ChatGPT 完善和润色文档说明，并辅助进行代码框架构造和测试。

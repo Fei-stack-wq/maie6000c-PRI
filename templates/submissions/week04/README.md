@@ -1,5 +1,11 @@
 # W04 Team Architecture Proposal and Project Plan
 
+> Historical Week 04 proposal for the earlier Startup Pitch project; it is not the current implementation.
+> Current project: [Week 07](../week07/README.md), [Architecture](../../../docs/architecture.md).
+>
+> 这是早期创业提案项目的 Week 04 历史材料，不代表当前实现。
+> 当前项目见 [Week 07](../week07/README.md)和[系统架构](../../../docs/architecture.md)。
+
 ## 1. Project Overview
 
 - **Team:** Project Group 15
@@ -163,74 +169,20 @@ The following documents support this Week 4 submission:
 
 | Artifact | Description |
 | --- | --- |
-| [Architecture Proposal](../../docs/architecture.md) | Detailed system architecture, component responsibilities, API design, data models, and failure handling. |
+| [Architecture Proposal](../../../docs/architecture.md) | Detailed system architecture, component responsibilities, API design, data models, and failure handling. |
 | [Week 4 README](README.md) | Project overview, workflow, milestone plan, scope, risks, and AI use statement. |
 
 The architecture document provides the technical details
 supporting this concise submission summary.
 
 
-## 6. Team Coordination
+## 6. AI Use Statement / AI 使用说明
 
-Our team plans to organize implementation work into
-four main areas:
+We used ChatGPT to improve and polish the documentation and to assist with code scaffolding and testing.
 
-1. API and database development.
-2. Worker and AI service integration.
-3. Testing, verification, and deployment.
-4. Documentation and final demonstration.
+我们使用 ChatGPT 完善和润色文档说明，并辅助进行代码框架构造和测试。
 
-Individual responsibilities will be confirmed before
-implementation begins.
-
-Team members will coordinate changes to shared APIs
-and data models, integrate their work regularly,
-and review the complete workflow before each milestone.
-
-
-## 7. AI Use Statement
-
-Generative AI tools were used to assist with the
-preparation of this Week 4 milestone.
-
-### Tools and Purposes
-
-- **ChatGPT/Codex:** Assisted with interpreting assignment
-  requirements, organizing project notes, and revising
-  the architecture proposal and project plan.
-
-- **GitHub Copilot:** Assisted with suggesting an
-  architecture-related commit message and description.
-
-### Human Review and Responsibility
-
-AI-assisted content was reviewed and revised during
-proposal preparation.
-
-The revisions focused on:
-
-- Clarifying the project objectives and requirements.
-- Simplifying the architecture and implementation plan.
-- Distinguishing proposed features from completed work.
-- Keeping the project scope realistic and manageable.
-
-A full team review is still pending.
-
-Before submission, the team will verify the proposed
-architecture, database structure, API interfaces,
-milestone schedule, and project scope.
-
-The model provider and individual task owners
-also remain to be confirmed.
-
-The team remains responsible for the accuracy,
-feasibility, and final submission of this proposal.
-
-This document describes planned work and does not
-claim that the proposed system has already been
-implemented or tested.
-
-## 8. supporting artifacts
+## 7. Supporting artifacts
 
 **ERD diagram:**
 

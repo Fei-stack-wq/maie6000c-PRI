@@ -1,14 +1,11 @@
-# Week 13 Submission Folder
+# Week 13 / 最终里程碑
 
-Use the following starter templates for the final milestone:
+## English
 
-- `templates/submissions/week13-README-template.md`
-- `templates/submissions/final-technical-brief-template.md`
-- `templates/ai-use-statement.md`
+The final milestone is not yet complete. [Progress](../../../docs/progress.md) records the
+current implementation and remaining work. Current demonstration evidence is in [Week 07](../week07/README.md).
 
-Recommended final contents of this folder include:
+## 中文
 
-- `README.md`
-- `final-technical-brief.md`
-- `ai-use-statement.md`
-- any final supporting artifacts
+最终里程碑尚未完成。[项目进度](../../../docs/progress.md)记录当前实现与待完成内容，
+当前演示证据见 [Week 07](../week07/README.md)。

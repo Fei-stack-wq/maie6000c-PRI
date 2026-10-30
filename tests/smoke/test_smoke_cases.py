@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+import uuid
 
 import httpx
 import pytest
@@ -19,7 +20,10 @@ def test_smoke_batch_to_analysis_flow():
 
     response = httpx.post(
         f"{base_url}/review-batches",
-        json={"platform": "smoke", "csv_text": CSV_OK},
+        json={
+            "platform": "smoke",
+            "csv_text": CSV_OK.replace("smoke-001", "smoke-" + uuid.uuid4().hex),
+        },
         timeout=10,
     )
     assert response.status_code == 202

@@ -9,11 +9,13 @@ baseline with an LLM behind the same interface.
 from __future__ import annotations
 
 import logging
+import re
 from time import perf_counter
 
 from fastapi import FastAPI, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
+from services.ai.app.english import find_issue, no_issue_verdict
 from services.common.categories import CATEGORY_VERSION, CATEGORIES
 from services.common.config import configure_logging
 from services.common.schemas import (
@@ -36,7 +38,7 @@ EXTRACTION_REQUESTS = Counter(
 )
 EXTRACTION_LATENCY = Histogram("ai_extraction_duration_seconds", "Extraction duration in seconds")
 
-MODEL_VERSION = "rule-baseline-1"
+MODEL_VERSION = "rule-baseline-2"
 PROMPT_VERSION = "v1"
 
 # Keywords per category; the first match in the body becomes the evidence.
@@ -47,22 +49,27 @@ KEYWORDS: dict[str, tuple[str, ...]] = {
     "usability": ("使用", "体验", "功能", "容量", "肩带", "舒适", "太重", "装不下"),
 }
 
-SENTENCE_BREAKS = "。！？；!?;\n"
+SENTENCE_BREAKS = "。！？；.!?;\n"
+ENGLISH_NAMES = {
+    "quality": "Quality", "logistics": "Logistics",
+    "mismatch": "Description mismatch", "usability": "Usability",
+}
+
+
+def _evidence_at(body: str, start: int, end: int) -> str:
+    """Keep a verbatim sentence window of at most 500 characters around the match."""
+    left, right = start, end
+    while left > 0 and body[left - 1] not in SENTENCE_BREAKS:
+        left -= 1
+    while right < len(body) and body[right] not in SENTENCE_BREAKS:
+        right += 1
+    left = max(left, end - 500)
+    return body[left:min(right, left + 500)].strip()
 
 
 def _find_evidence(body: str, keyword: str) -> str | None:
-    """Return a sentence (or a bounded snippet) that contains ``keyword``."""
     index = body.find(keyword)
-    if index < 0:
-        return None
-    start = index
-    while start > 0 and body[start - 1] not in SENTENCE_BREAKS:
-        start -= 1
-    end = index + len(keyword)
-    while end < len(body) and body[end] not in SENTENCE_BREAKS:
-        end += 1
-    evidence = body[start:end].strip()
-    return evidence or None
+    return None if index < 0 else _evidence_at(body, index, index + len(keyword))
 
 
 def extract_issues(payload: ExtractionRequest) -> ExtractionResult:
@@ -73,24 +80,31 @@ def extract_issues(payload: ExtractionRequest) -> ExtractionResult:
     for category_id, keywords in KEYWORDS.items():
         if category_id in used_categories:
             continue
-        for keyword in keywords:
-            evidence = _find_evidence(body, keyword)
-            if evidence is None:
-                continue
-            issues.append(
-                ExtractedIssue(
-                    category_id=category_id,
-                    description=f"{CATEGORIES[category_id].name}相关问题：{evidence[:80]}",
-                    evidence_text=evidence[:500],
-                )
-            )
-            used_categories.add(category_id)
-            break
+        evidence = next((found for keyword in keywords
+                         if (found := _find_evidence(body, keyword))), None)
+        english = False
+        if evidence is None:
+            span = find_issue(body, category_id)
+            if span is not None:
+                evidence = _evidence_at(body, *span)
+                english = True
+        if evidence is None:
+            continue
+        description = (
+            f"{ENGLISH_NAMES[category_id]} issue: {evidence[:80]}" if english
+            else f"{CATEGORIES[category_id].name}相关问题：{evidence[:80]}"
+        )
+        issues.append(ExtractedIssue(
+            category_id=category_id, description=description, evidence_text=evidence,
+        ))
+        used_categories.add(category_id)
 
     if issues:
         has_issue = "yes"
     elif len(body.strip()) < 4:
         has_issue = "unknown"
+    elif re.search(r"[A-Za-z]", body) and not re.search(r"[\u4e00-\u9fff]", body):
+        has_issue = no_issue_verdict(body)
     else:
         has_issue = "no"
 
