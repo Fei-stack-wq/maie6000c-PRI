@@ -112,6 +112,13 @@ label{display:block;font-weight:600;margin-bottom:8px}textarea,select{font:inher
    for(const run of s.runs) {
      const li=document.createElement('li');
      li.textContent='第 '+run.attempt+' 次分析：'+(run.status==='succeeded'?'成功，已保存结果':'失败，'+reason(run.error_code));
+      if (run.fallback_reason) {
+        li.textContent += ' · 规则回退（' + run.fallback_reason + '）';
+      } else if (run.source === 'llm') {
+        li.textContent += ' · 真实模型';
+      } else if (run.source === 'heuristic') {
+        li.textContent += ' · 规则分析';
+      }
      $('runs').append(li);
    }
  }

@@ -399,9 +399,15 @@ def read_comment(comment_id: str, db: Session = Depends(get_db)) -> CommentDetai
         .order_by(AnalysisRun.id.desc())
         .limit(1)
     ).scalars().first()
-    detail.latest_analysis_run = (
-        AnalysisRunRead.model_validate(latest_run) if latest_run is not None else None
-    )
+    
+    if latest_run is not None:
+        output = latest_run.output_json or {}
+        detail.latest_analysis_run = AnalysisRunRead.model_validate(
+            latest_run
+        ).model_copy(update={
+            "source": output.get("source"),
+            "fallback_reason": output.get("fallback_reason"),
+        })
     return detail
 
 

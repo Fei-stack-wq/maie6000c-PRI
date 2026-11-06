@@ -29,6 +29,8 @@ from services.common.models import (
     SourceType,
 )
 
+from typing import Literal
+
 
 class HealthResponse(BaseModel):
     service: str
@@ -190,6 +192,8 @@ class AnalysisRunRead(OrmModel):
     token_in: int | None = None
     token_out: int | None = None
     created_at: datetime
+    source: Literal["llm", "heuristic"] | None = None
+    fallback_reason: str | None = None
 
 
 class CommentRead(OrmModel):
@@ -351,6 +355,7 @@ class ExtractionRequest(BaseModel):
     body: str = Field(min_length=1, max_length=2000)
     product_id: str
     category_ids: list[str] = Field(default_factory=list)
+    
 
 
 class ExtractedIssue(BaseModel):
@@ -369,6 +374,8 @@ class ExtractionResult(BaseModel):
     prompt_version: str = Field(min_length=1, max_length=64)
     category_version: str = Field(default="v1", max_length=64)
     schema_version: str = Field(default="1", max_length=16)
+    source: Literal["llm", "heuristic"] | None = None
+    fallback_reason: str | None = None
 
     @model_validator(mode="after")
     def _check_issue_consistency(self) -> "ExtractionResult":

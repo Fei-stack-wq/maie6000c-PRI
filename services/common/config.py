@@ -6,6 +6,7 @@ from functools import lru_cache
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pythonjsonlogger import jsonlogger
 
+from typing import Literal
 
 class Settings(BaseSettings):
     app_env: str = "development"
@@ -14,6 +15,14 @@ class Settings(BaseSettings):
     ai_service_url: str = "http://ai:8100"
     worker_poll_seconds: float = 2.0
     worker_request_timeout_seconds: float = 20.0
+
+    llm_provider: Literal["heuristic", "openai_compatible"] = "heuristic"
+    llm_base_url: str = ""
+    llm_model: str = ""
+    llm_api_key: str = ""
+    llm_api_key_header: str = "api-key"
+    llm_timeout_seconds: float = 8.0
+    llm_prompt_version: str = "review-extraction-v1"
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

@@ -17,7 +17,7 @@ from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_
 
 from services.ai.app.english import find_issue, no_issue_verdict
 from services.common.categories import CATEGORY_VERSION, CATEGORIES
-from services.common.config import configure_logging
+from services.common.config import configure_logging, get_settings
 from services.common.schemas import (
     ExtractedIssue,
     ExtractionRequest,
@@ -27,6 +27,9 @@ from services.common.schemas import (
     HealthResponse,
     GroupingAction,
 )
+
+from services.ai.app.llm import LlmError, call_llm_extraction
+
 
 configure_logging()
 logger = logging.getLogger("services.ai.main")
@@ -118,6 +121,27 @@ def extract_issues(payload: ExtractionRequest) -> ExtractionResult:
     )
 
 
+def run_extraction(payload: ExtractionRequest) -> ExtractionResult:
+    settings = get_settings()
+
+    if settings.llm_provider == "heuristic":
+        result = extract_issues(payload)
+        return result.model_copy(update={"source": "heuristic"})
+
+    try:
+        return call_llm_extraction(payload, settings)
+    except LlmError as exc:
+        reason = str(exc)
+        logger.warning(
+            "llm_fallback",
+            extra={"comment_id": payload.comment_id, "fallback_reason": reason},
+        )
+        result = extract_issues(payload)
+        return result.model_copy(
+            update={"source": "heuristic", "fallback_reason": reason}
+        )
+
+
 @app.get("/", response_model=HealthResponse)
 def root() -> HealthResponse:
     return HealthResponse(service="ai", status="ok")
@@ -141,7 +165,7 @@ def metrics() -> Response:
 @app.post("/extract-issues", response_model=ExtractionResult)
 def extract(payload: ExtractionRequest) -> ExtractionResult:
     start = perf_counter()
-    result = extract_issues(payload)
+    result = run_extraction(payload)
     EXTRACTION_REQUESTS.labels(result.has_issue.value).inc()
     EXTRACTION_LATENCY.observe(perf_counter() - start)
     logger.info(

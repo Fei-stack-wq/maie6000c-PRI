@@ -22,6 +22,13 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:midterm-local@midterm-db:5432/midterm_demo
       AI_SERVICE_URL: http://127.0.0.1:18100
+      LLM_PROVIDER: "${LLM_PROVIDER:-heuristic}"
+      LLM_BASE_URL: "${LLM_BASE_URL:-}"
+      LLM_MODEL: "${LLM_MODEL:-}"
+      LLM_API_KEY: "${LLM_API_KEY:-}"
+      LLM_API_KEY_HEADER: "${LLM_API_KEY_HEADER:-api-key}"
+      LLM_TIMEOUT_SECONDS: "${LLM_TIMEOUT_SECONDS:-8}"
+      LLM_PROMPT_VERSION: "${LLM_PROMPT_VERSION:-review-extraction-v1}"
     ports:
       - "127.0.0.1:${MIDTERM_DEMO_PORT:-18717}:18707"
     depends_on:
