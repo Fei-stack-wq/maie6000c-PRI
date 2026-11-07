@@ -17,7 +17,8 @@ job, then call `process_job(claim)`. The original `JobClaim` is retained through
 | `metrics.py` | Event counts, attempt duration, job counts and last poll |
 
 The R1 update path locks existing comments; query counts exclude superseded AI suggestions.
-The database schema and AI HTTP response format remain unchanged.
+The database schema is retained. The AI response now includes optional `source` and
+`fallback_reason`, saved by `_record_run()` in `AnalysisRun.output_json`.
 
 ### 2. Success and data protection
 
@@ -63,7 +64,7 @@ bounded attempt. A database outage or forced kill may prevent saving the attempt
 | `WORKER_RECOVERY_LIMIT` | 100 | 100 |
 | `WORKER_METRICS_PORT` | 8200 | 8200 |
 | `WORKER_POLL_SECONDS` | 2 | 0.3 |
-| `WORKER_REQUEST_TIMEOUT_SECONDS` | 20 | 10 |
+| `WORKER_REQUEST_TIMEOUT_SECONDS` | 20 | 22 |
 
 Default retry waits before the second and third attempts are 60 and 300 seconds; the demo uses
 3 and 6 seconds. The lease must exceed the HTTP timeout. Metrics and log commands are in
@@ -80,7 +81,9 @@ Reproduce with ` .\scripts\test_r2.ps1 `; details and conditions are in the
 Manual retry/recover APIs, persistent manual job-operation audit and batch replay remain unimplemented.
 `python -m scripts.recover_stale_jobs` only recovers expired/exhausted active work under the existing
 rules; it does not restart terminal failed jobs. R4 must protect concurrent review writes when its
-write endpoints are added. LLM and semantic grouping belong to the remaining analysis work.
+write endpoints are added. Model extraction is connected through `run_extraction()`; semantic
+grouping and labelled evaluation remain. Expected provider failures return marked rule fallback,
+while errors reaching the Worker use the retry table above.
 
 ## 中文
 
@@ -99,7 +102,8 @@ write endpoints are added. LLM and semantic grouping belong to the remaining ana
 | `metrics.py` | 事件次数、尝试耗时、任务数和最近轮询 |
 
 R1 更新已有评论时增加行锁，查询计数排除已失效 AI 建议。
-数据库结构和 AI HTTP 返回格式保持不变。
+数据库结构继续使用原表。AI 返回新增可选 `source` 和 `fallback_reason`，
+由 `_record_run()` 保存到 `AnalysisRun.output_json`。
 
 ### 2. 成功处理与数据保护
 
@@ -143,7 +147,7 @@ R1 在中断期间更新正文时，回收保留新输入的执行机会。
 | `WORKER_RECOVERY_LIMIT` | 100 | 100 |
 | `WORKER_METRICS_PORT` | 8200 | 8200 |
 | `WORKER_POLL_SECONDS` | 2 | 0.3 |
-| `WORKER_REQUEST_TIMEOUT_SECONDS` | 20 | 10 |
+| `WORKER_REQUEST_TIMEOUT_SECONDS` | 20 | 22 |
 
 默认第二、三次执行前分别等待 60、300 秒；Demo 为 3、6 秒。
 租约必须长于 HTTP 超时。指标和日志命令见 [运行说明](operations.md)，两种配置中的 8200 都是内部端口。
@@ -157,4 +161,5 @@ R1 在中断期间更新正文时，回收保留新输入的执行机会。
 
 人工 retry/recover API、持久化人工任务操作审计和批量重放尚未实现。
 `python -m scripts.recover_stale_jobs` 只按现有规则处理过期／次数用尽的活跃任务，
-不会重新执行最终失败任务。R4 加入写接口时仍需保护并发人工决定；大模型和语义归组属于后续分析工作。
+不会重新执行最终失败任务。R4 加入写接口时仍需保护并发人工决定。模型提取已通过 `run_extraction()` 接入，
+语义归组和标注评测待完成。已分类提供方故障返回带标记的规则回退；继续传到 Worker 的错误按上表重试。

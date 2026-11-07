@@ -29,10 +29,12 @@ identifies this specific claim. `worker/main.py.process_job(claim)` retains it t
 `jobs.py.load_input_for_claim()` checks ownership with `jobs.py.lock_owned_job()`.
 `analysis.py.load_analysis_input()` captures the body, source scope, hash and revision markers.
 After that database session closes, `analysis.py.call_ai_service()` sends the snapshot to
-`/extract-issues`. In the AI service, `ai/main.py.extract()` calls `ai/main.py.extract_issues()`.
-Current analysis retains Chinese keywords and adds `english.py.find_issue()` for English phrases.
-`ai/main.py._evidence_at()` takes the evidence from the original text. R2 does not hold a database
-lock during the HTTP call.
+`/extract-issues`. `ai/main.py.extract()` calls `ai/main.py.run_extraction()`, which reads the
+provider configuration. Model mode calls `llm.py.call_llm_extraction()` and validates its JSON;
+rule mode calls `ai/main.py.extract_issues()`. Expected model errors return to the same rule
+function with a fallback reason. Rule evidence uses `english.py.find_issue()` and
+`ai/main.py._evidence_at()`. Both paths return `ExtractionResult` with source information.
+R2 does not hold a database lock during the HTTP call.
 
 ### 4. R2 checks the reply and evidence
 
@@ -45,7 +47,7 @@ responses are successful analyses; invalid output or request errors take the fai
 
 `jobs.py.complete_job()` checks `jobs.py.lock_owned_job()` again and reloads current input with
 `analysis.py.load_analysis_input()`. Only a matching claim and input may become the current result.
-`jobs.py._record_run()` adds the analysis record, then `jobs.py.save_issue_links()` obtains
+`jobs.py._record_run()` saves the analysis, including `source`/`fallback_reason` in `output_json`, then `jobs.py.save_issue_links()` obtains
 `jobs.py._group_lock()`, supersedes untouched AI suggestions with `jobs.py._supersede_suggestions()`,
 and saves category-based candidate groups and evidence links. Human decisions remain unchanged.
 The comment becomes `analyzed`, the job becomes `completed`, and `jobs.py._clear_claim()` clears
@@ -55,7 +57,8 @@ claim fields. All result changes commit together; a saving error rolls back part
 
 `api/main.py.read_comment()`, `api/main.py.read_issue()` and `api/main.py.read_job()` expose results.
 `api/main.py.read_batch_progress()` / `api/main.py._batch_progress()` derive batch progress.
-The midterm controller's `app.py.read_state()` reads stored results for the demo page.
+The midterm controller's `app.py.read_state()` reads stored results and source/reason for the
+demo attempt history. Comment details also expose source/reason from the latest saved run.
 The original product frontend still uses mock data; its real queries and review writes remain R4 work.
 
 ### 7. Errors return work to the same processing path
@@ -129,9 +132,9 @@ the new text. If execution was interrupted after R1 marked the new text queued,
 
 读取结束后，数据库会话关闭并释放锁。然后，`worker/main.py.process_job(claim)` 调用 `analysis.py.call_ai_service()`，将这份固定输入中的评论编号、商品编号和正文发送给 R3 的 `/extract-issues` 接口。
 
-对端由 `ai/main.py.extract()` 接收请求，再调用 `ai/main.py.extract_issues()` 分析评论。当前代码保留中文关键词，并通过 `english.py.find_issue()` 识别英文表达，再由 `ai/main.py._evidence_at()` 提取原文证据，返回是否有问题、问题类别、描述和证据。
+对端由 `ai/main.py.extract()` 接收请求，再调用 `ai/main.py.run_extraction()` 读取提供方配置。模型模式调用 `llm.py.call_llm_extraction()`，发送正文并检查返回 JSON；规则模式调用 `ai/main.py.extract_issues()`，其中英文匹配使用 `english.py.find_issue()`，证据由 `ai/main.py._evidence_at()` 提取。已分类模型故障也交回同一规则函数，并附上回退原因。两条路径都返回包含结果来源的 `ExtractionResult`。
 
-因此，这一步的分工是：**R2 负责把材料正确送出去，R3 负责给出分析内容。** 后续 R3 换成大模型时，只要保持接口格式，R2 仍可沿用这条处理链。
+因此，这一步的分工是：**R2 负责把材料正确送出去，R3 负责给出分析内容。** 当前大模型已沿这条接口接入，R2 随结果保存来源和回退原因。
 
 ### 4. R2 检查回复，确认结果能否使用
 
@@ -153,7 +156,7 @@ the new text. If execution was interrupted after R1 marked the new text queued,
 
 这两次检查是因为：等待 AI 回复期间，任务可能已经交给别人，评论正文也可能已经更新。只有确认任务归属和输入都仍然匹配，结果才能成为当前结果。
 
-检查通过后，`jobs.py.complete_job()` 调用 `jobs.py._record_run()` 创建 AnalysisRun，记录本次输入哈希、分析输出、模型版本和耗时等。随后，它调用 `jobs.py.save_issue_links()`，保存问题组及评论关联。
+检查通过后，`jobs.py.complete_job()` 调用 `jobs.py._record_run()` 创建 AnalysisRun，记录本次输入哈希、分析输出、模型版本和耗时等，`source`／`fallback_reason` 随结果存入 `output_json`。随后，它调用 `jobs.py.save_issue_links()`，保存问题组及评论关联。
 
 `jobs.py.save_issue_links()` 先通过 `jobs.py._group_lock()`，让同一范围内的并发建组按顺序进行，再通过 `jobs.py._supersede_suggestions()` 标记未人工处理的旧 AI 建议失效。接着，它查询同平台、同店铺、同商品、同类别的有效问题组：找到就复用，没有就创建候选组，并保存评论与问题组之间的原文证据。
 
@@ -169,7 +172,7 @@ the new text. If execution was interrupted after R1 marked the new text queued,
 
 结果保存后，前端可以通过 `api/main.py.read_comment()` 查询评论和分析记录，通过 `api/main.py.read_issue()` 查询问题组及原文证据，通过 `api/main.py.read_job()` 查询任务状态。
 
-期中 Demo 通过 `demo/midterm/app.py.read_state()` 读取同一数据库的已保存状态并展示。原五页产品前端仍使用模拟数据，不能把小 Demo 的接入算作原前端已完成。
+期中 Demo 通过 `demo/midterm/app.py.read_state()` 读取同一数据库的已保存状态、分析来源和回退原因，在尝试记录中展示；评论详情接口也从最近一次分析记录返回来源和原因。原五页产品前端仍使用模拟数据，不能把小 Demo 的接入算作原前端已完成。
 
 批次进度则由 `api/main.py.read_batch_progress()` 调用 `api/main.py._batch_progress()` 汇总得到，R2 不再另外维护一份批次完成计数。
 

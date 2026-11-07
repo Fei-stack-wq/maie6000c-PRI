@@ -9,7 +9,7 @@ The project has four cooperating areas. Their current behaviour is described in
 | --- | --- | --- |
 | R1: data and ingestion | Validate reviews, deduplicate, record revisions, create jobs and expose queries | `services/api/app/`, `services/common/`, `alembic/` |
 | R2: background processing | Claim and recover jobs, call analysis, validate evidence, save results and retry failures | `services/worker/app/` |
-| R3: analysis | Extract issue categories and original evidence; improve analysis and grouping quality | `services/ai/app/` |
+| R3: analysis | Call models or rules, mark fallback, extract categories/evidence and evaluate analysis quality | `services/ai/app/` |
 | R4: product interface and review | Display reviews/issues and support human review and follow-up | `frontend/`; review-write APIs remain unimplemented |
 
 R1 creates pending work. R2 sends a fixed review snapshot to R3 over HTTP and saves the validated
@@ -29,7 +29,7 @@ New human-review endpoints still need to handle concurrent updates.
 | --- | --- | --- |
 | R1 数据与接入 | 校验评论、去重、记录版本、创建任务和提供查询 | `services/api/app/`、`services/common/`、`alembic/` |
 | R2 后台处理 | 领取和回收任务、调用分析、核对证据、保存结果和失败重试 | `services/worker/app/` |
-| R3 分析 | 提取问题类别和原文证据，改进分析与归组质量 | `services/ai/app/` |
+| R3 分析 | 调用模型或规则、标记回退、提取类别和原文证据、评测分析质量 | `services/ai/app/` |
 | R4 产品界面与复核 | 展示评论／问题，支持人工复核及跟进 | `frontend/`；复核写入接口尚未实现 |
 
 R1 创建等待任务，R2 通过 HTTP 将固定评论输入交给 R3，检查回复后保存，查询接口提供已保存结果。

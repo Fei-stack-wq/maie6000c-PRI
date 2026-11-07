@@ -11,7 +11,7 @@ stay inside `save_issue_links()`. Current grouping is category-based. The origin
 is not connected; the midterm demo reads persisted results separately.
 
 [English Mermaid source](r2-flowchart.en.mmd). The saved
-[zoomable view](r2-flowchart.html) and [SVG](r2-flowchart.svg) retain the original Chinese labels.
+[zoomable view](r2-flowchart.html) and [SVG](r2-flowchart.svg) are archived Week 07 rule-only diagrams; the inline Mermaid below shows the current model path.
 
 ```mermaid
 flowchart TB
@@ -45,7 +45,11 @@ flowchart TB
 
   A3 -.->|"Pending job persisted"| CLAIM
 
-    AI["ai/main.py.extract()"] --> RULE["ai/main.py.extract_issues()"]
+    AI["ai/main.py.extract()"] --> DISPATCH["ai/main.py.run_extraction()"]
+    DISPATCH -->|"Rule mode"| RULE["ai/main.py.extract_issues()"]
+    DISPATCH -->|"Model mode"| LLM["llm.py.call_llm_extraction()"]
+    LLM -->|"Expected error; marked fallback"| RULE
+    LLM -.->|"Valid model response"| VALID
   CALL -.->|"HTTP request"| AI
   RULE -.->|"HTTP response"| VALID
 
@@ -74,7 +78,7 @@ flowchart TB
   classDef normal fill:#edf7f0,stroke:#497b60,color:#173d28;
   classDef failure fill:#fff4e5,stroke:#a4783e,color:#513619;
   classDef changed fill:#f4effb,stroke:#8a6aa6,color:#4c3567;
-  class A1,A2,A3,AI,RULE,READ_COMMENT,READ_ISSUE context;
+  class A1,A2,A3,AI,DISPATCH,LLM,RULE,READ_COMMENT,READ_ISSUE context;
   class W,N,REC,MET,CLAIM,PROC,INPUT,OWN1,SNAP,CALL,VALID,EVID,COMPLETE,OWN2,CURRENT,RECORD,SAVE,CLEAR,NEXT normal;
   class CLASSIFY,HANDLE,OWN3,FAILED_INPUT,FAILED_RUN,RETRY,DELAY,CLEAR_RETRY,CLEAR_FAILED failure;
   class DISCARD,CHANGE changed;
@@ -82,6 +86,8 @@ flowchart TB
 ```
 
 ## 中文
+
+下方 Mermaid 展示当前模型分支。保存的 HTML／SVG 为 Week 07 规则版归档。
 
 [打开可缩放流程图](r2-flowchart.html) · [SVG 矢量图](r2-flowchart.svg)
 
@@ -130,7 +136,11 @@ flowchart TB
 
   A3 -.->|"待处理任务入库"| CLAIM
 
-    AI["ai/main.py.extract()"] --> RULE["ai/main.py.extract_issues()"]
+    AI["ai/main.py.extract()"] --> DISPATCH["ai/main.py.run_extraction()"]
+    DISPATCH -->|"规则模式"| RULE["ai/main.py.extract_issues()"]
+    DISPATCH -->|"模型模式"| LLM["llm.py.call_llm_extraction()"]
+    LLM -->|"已分类故障，标记回退"| RULE
+    LLM -.->|"有效模型回复"| VALID
   CALL -.->|"HTTP 分析请求"| AI
   RULE -.->|"HTTP 返回"| VALID
 
@@ -159,7 +169,7 @@ flowchart TB
   classDef normal fill:#edf7f0,stroke:#497b60,color:#173d28;
   classDef failure fill:#fff4e5,stroke:#a4783e,color:#513619;
   classDef changed fill:#f4effb,stroke:#8a6aa6,color:#4c3567;
-  class A1,A2,A3,AI,RULE,READ_COMMENT,READ_ISSUE context;
+  class A1,A2,A3,AI,DISPATCH,LLM,RULE,READ_COMMENT,READ_ISSUE context;
   class W,N,REC,MET,CLAIM,PROC,INPUT,OWN1,SNAP,CALL,VALID,EVID,COMPLETE,OWN2,CURRENT,RECORD,SAVE,CLEAR,NEXT normal;
   class CLASSIFY,HANDLE,OWN3,FAILED_INPUT,FAILED_RUN,RETRY,DELAY,CLEAR_RETRY,CLEAR_FAILED failure;
   class DISCARD,CHANGE changed;

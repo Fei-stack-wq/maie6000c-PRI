@@ -18,7 +18,8 @@ docker compose -f compose.midterm.yaml up --build -d --wait
 
 Open **[English demo](http://localhost:18717/en)** or [Chinese demo](http://localhost:18717/zh).
 See the [demo run instructions](demo/midterm/README.md) for downloads, operation and shutdown.
-The demo needs no `.env` file or model API key. The first build downloads dependencies.
+The default rule mode starts without a model key. Model mode reads local `LLM_*` settings.
+The first build downloads dependencies. See [AI configuration](docs/operations.md#7-ai-configuration).
 
 ### Project and current scope
 
@@ -34,13 +35,13 @@ The current working path is:
 | --- | --- |
 | R1: ingestion and queries | CSV text / JSON input, row validation, deduplication, revisions, jobs and read APIs are implemented |
 | R2: background processing | Claiming, bounded retries, expired-job recovery, protected writes, evidence checks and metrics are implemented |
-| R3: analysis | Chinese/English rule extraction and category-based grouping work; LLM extraction, semantic grouping and quality evaluation remain |
+| R3: analysis | Model extraction, Chinese/English rule fallback and source tracking are implemented; semantic grouping and labelled evaluation remain |
 | R4: product frontend | The original five-page interface uses mock data; live data and review-action APIs remain |
 | Midterm demo | A separate Chinese/English page calls the existing backend and demonstrates persisted results and retry behaviour |
 
 The demo is a Week 07 presentation interface, not a replacement for the team frontend.
 The language pages share one round. Reviews and evidence remain in their original language;
-common Chinese and English problem expressions are supported by the rule baseline.
+analysis supports model mode, rule mode and marked rule fallback. The attempt history displays the source.
 The system does not determine product defects, liability or root causes, or act on the source platform.
 
 **Analysis limits:** The rules cover selected expressions in quality, delivery, description mismatch
@@ -54,7 +55,7 @@ retry and result storage. It has not established accuracy across unrestricted re
 | --- | --- |
 | `services/api/app/` | Review ingestion and queries |
 | `services/worker/app/` | Background job processing |
-| `services/ai/app/` | Internal rule-based analysis service |
+| `services/ai/app/` | Internal model/rule analysis service |
 | `services/common/`, `alembic/` | Shared data models, request/response definitions and database migrations |
 | `frontend/` | Original product frontend with mock interactions |
 | `demo/midterm/`, `compose.midterm.yaml` | Standalone midterm demo and its own database |
@@ -100,7 +101,8 @@ docker compose -f compose.midterm.yaml up --build -d --wait
 
 打开 **[英文版 Demo](http://localhost:18717/en)** 或 [中文版 Demo](http://localhost:18717/zh)。
 下载、操作和停止方法见 [Demo 运行说明](demo/midterm/README.md)。
-Demo 不需要 `.env` 或模型 API Key，首次构建会下载依赖。
+默认规则模式无需模型密钥。模型模式读取本地 `LLM_*` 配置，首次构建会下载依赖。
+配置方法见[模型配置](docs/operations.md#7-ai-configuration)。
 
 ### 项目与当前范围
 
@@ -116,12 +118,12 @@ Demo 不需要 `.env` 或模型 API Key，首次构建会下载依赖。
 | --- | --- |
 | R1 数据接入与查询 | 已实现 CSV 文本／JSON 输入、逐行校验、去重、版本记录、建任务和查询接口 |
 | R2 后台处理 | 已实现任务领取、有限重试、过期回收、受保护的结果保存、证据检查和指标 |
-| R3 分析 | 中英文规则提取和按类别归组可运行；大模型、语义归组和效果评测待完成 |
+| R3 分析 | 已接入模型提取、中英文规则回退和来源记录；语义归组和标注评测待完成 |
 | R4 产品前端 | 原五页界面使用模拟数据；真实数据接入和复核动作接口待完成 |
 | 期中 Demo | 独立中英文页面连接现有后台，展示结果保存与失败重试 |
 
 Demo 仅用于 Week 07 展示，不替代组员的产品前端。两种语言页面共用同一轮演示。
-评论与证据保持原语言；规则基线支持常见中英文问题表达。
+评论与证据保持原语言；支持模型、规则和带原因的规则回退，尝试记录展示结果来源。
 系统不判定产品缺陷、责任或根因，也不向来源平台执行操作。
 
 **分析边界：** 规则只覆盖质量、物流、描述不符和使用体验中的部分表达。
@@ -134,7 +136,7 @@ Demo 展示处理、重试和结果保存，尚未验证对任意评论的识别
 | --- | --- |
 | `services/api/app/` | 评论导入与查询 |
 | `services/worker/app/` | 后台任务处理 |
-| `services/ai/app/` | 内部规则分析服务 |
+| `services/ai/app/` | 内部模型／规则分析服务 |
 | `services/common/`、`alembic/` | 共享数据模型、输入输出格式和数据库迁移 |
 | `frontend/` | 原产品前端与模拟交互 |
 | `demo/midterm/`、`compose.midterm.yaml` | 独立期中 Demo 及其数据库 |
