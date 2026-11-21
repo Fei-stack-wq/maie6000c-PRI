@@ -106,9 +106,10 @@ For configuration and error rules, see [R2 implementation](r2-implementation.md)
 | Unit/integration only | Python 3.11 with `pip install -e ".[dev]"`: `python -m pytest -q tests/unit tests/integration` |
 | PostgreSQL locking tests | Included above only with `WORKER_TEST_DATABASE_URL` pointing to a separate PostgreSQL database ending in `_test`; otherwise the PostgreSQL cases skip (currently 40 cases) |
 | Frontend routes and CSV handling | Node 22: `node --test tests/frontend/*.cjs` |
+| Authenticated review acceptance | Explicit local session-mode opt-in and test credentials: see [human review](human-review.md); `python -m pytest -q tests/smoke/test_human_review_live.py` |
 | Original-stack smoke | `SMOKE_BASE_URL=http://localhost:8000 pytest tests/smoke -q` runs the basic smoke case; four fault/recovery cases require the isolated runner |
 
-The local human-review delivery passed 400 Python tests (including 40 PostgreSQL cases) and
+The local human-review delivery passed 405 Python tests (including 40 PostgreSQL cases) and
 8 frontend tests. PR CI also runs the frontend tests and `alembic check`; this record does not imply
 a remote CI run before the branch is pushed.
 
@@ -233,9 +234,10 @@ docker compose exec worker python -m scripts.recover_stale_jobs
 | 仅单元／集成 | Python 3.11 执行 `pip install -e ".[dev]"` 后运行 `python -m pytest -q tests/unit tests/integration` |
 | PostgreSQL 锁测试 | 需将 `WORKER_TEST_DATABASE_URL` 指向名称以 `_test` 结尾的独立 PostgreSQL 测试库，否则 PostgreSQL 用例跳过（当前 40 项） |
 | 前端路由与 CSV 文件处理 | Node 22：`node --test tests/frontend/*.cjs` |
+| 登录模式完整复核验收 | 显式启用本机测试地址及测试账号，见[人工复核说明](human-review.md)；`python -m pytest -q tests/smoke/test_human_review_live.py` |
 | 原项目冒烟 | `SMOKE_BASE_URL=http://localhost:8000 pytest tests/smoke -q` 执行基础用例；四项故障／回收用例需要隔离启动脚本 |
 
-本地人工复核交付已通过 400 项 Python 测试（含 40 项 PostgreSQL）和 8 项前端测试。
+本地人工复核交付已通过 405 项 Python 测试（含 40 项 PostgreSQL）和 8 项前端测试。
 PR 的 CI 同时执行前端测试和 `alembic check`；尚未推送时，这不是远端 CI 已运行的证明。
 
 完整 R2 脚本运行单元／集成、5 项真实服务冒烟、迁移往返和正常退出检查。

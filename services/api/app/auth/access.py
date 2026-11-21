@@ -21,6 +21,10 @@ PUBLIC_PATHS = {
     "/auth/session",
     "/auth/login",
     "/auth/logout",
+    "/project-docs/architecture",
+    "/project-docs/human-review",
+    "/project-docs/operations",
+    "/project-docs/readme",
 }
 
 

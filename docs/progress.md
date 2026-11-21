@@ -6,17 +6,21 @@ The local `human-review` branch now persists review decisions/revisions, reassig
 source rechecks, issue follow-up and merge/split, with login and reviewer/viewer roles.
 CSV upload, batch progress, comments, issue groups and review pages share real APIs and deep links;
 model extraction/semantic grouping and the other analysis/operations items below are still separate work.
-Validation: 400 Python tests (40 PostgreSQL) and 8 frontend tests passed, with browser flow checks.
+Validation: 405 Python tests (40 PostgreSQL) and 8 frontend tests passed, with browser flow checks.
 These changes have not been pushed. Details: [Human review](human-review.md).
 Delivery preparation also verifies legacy-data migration preservation, migration/model consistency,
 and Compose configuration, and adds the frontend tests to PR CI. Remote CI is not yet run.
+The completion audit fixed About-page documentation links and outdated architecture/module descriptions;
+one authenticated live smoke test and Docker image build/package checks also passed.
 
 本地 `human-review` 分支已实现复核、改判、调整归组、人工补充、原文重核、问题跟进及合并/拆分，
 并接入账号登录与复核员/只读权限。真实 CSV 上传、批次进度、评论页、问题组页和复核页已共用接口并完成跨页联调。
-400 项 Python 测试（含 40 项 PostgreSQL）、8 项前端测试及浏览器验收通过，尚未推送。
+405 项 Python 测试（含 40 项 PostgreSQL）、8 项前端测试及浏览器验收通过，尚未推送。
 上传支持行级错误、整批拒收及幂等重试；模型/语义归组等分析工作及其他运维事项仍待完成。
 交付前补充验证了旧数据迁移保留、迁移/模型一致性和 Compose 配置，并把前端测试纳入 PR CI。
 运行说明及人工验收步骤已更新；尚未运行远端 CI。
+复查修复了“关于”页文档 404、架构和模块边界文档的过时描述；另通过 1 项真实登录模式端到端验收。
+Docker 镜像构建及镜像内应用、前端和文档完整性检查通过。
 
 The sections below retain the 29 October milestone record. / 下文保留 10 月 29 日里程碑记录。
 

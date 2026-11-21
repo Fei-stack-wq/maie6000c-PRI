@@ -15,6 +15,7 @@ from pathlib import Path
 from time import perf_counter
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, Response
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
@@ -96,6 +97,24 @@ JOBS_CREATED = Counter("api_jobs_created_total", "Total analysis jobs created")
 FRONTEND_DIR = Path(__file__).resolve().parents[3] / "frontend"
 if FRONTEND_DIR.is_dir():
     app.mount("/ui", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="ui")
+
+PROJECT_DOCUMENTS = {
+    "architecture": "docs/architecture.md",
+    "human-review": "docs/human-review.md",
+    "operations": "docs/operations.md",
+    "readme": "README.md",
+}
+
+
+@app.get("/project-docs/{document}", include_in_schema=False)
+def project_document(document: str):
+    relative = PROJECT_DOCUMENTS.get(document)
+    if relative is None:
+        raise HTTPException(404, detail={"code": "document_not_found"})
+    path = FRONTEND_DIR.parent / relative
+    if not path.is_file():
+        raise HTTPException(404, detail={"code": "document_not_found"})
+    return FileResponse(path, media_type="text/plain")
 
 
 def _scope(

@@ -6,8 +6,9 @@
 
 The target product helps staff review recurring issues in product comments. We keep source text
 and evidence separate from suggestions. Only staff should confirm an issue or record a resolution.
-The current milestone covers ingestion, background analysis, persistence and a small demo page.
-Semantic grouping and the complete human-review workflow remain planned work.
+The local human-review branch covers ingestion, background analysis, persistence, live product pages,
+login/roles, audited decisions, manual evidence, rechecks, issue follow-up and merge/split.
+Model extraction, semantic grouping and quality evaluation remain separate analysis work.
 
 ### 2. Components and current data flow
 
@@ -21,7 +22,7 @@ flowchart LR
     Proxy --> AI[Rule-based AI service]
     DB --> Presenter
     Presenter --> Page
-    Original[Original frontend: mock data]
+    Original[Product frontend: live API] --> API
 ```
 
 The demo controller starts the existing API, AI and Worker as child processes. It converts the
@@ -30,16 +31,19 @@ The proxy adds a three-second delay and optional HTTP 503 responses. It does not
 or result-saving logic. The standalone Compose runs the controller and its own PostgreSQL service.
 
 In the full project, `compose.yaml` runs API, Worker, AI and PostgreSQL separately, with optional
-Prometheus. The original frontend is served by the API at `/ui/` but still uses mock data.
+Prometheus. The product frontend is served by the API at `/ui/` and reads/writes real data through the same-origin API.
+Session mode requires login for business requests, permits viewer reads and reviewer writes, and validates
+CSRF tokens. Explicit local demo mode also writes real records. See [human review](human-review.md).
 
 | Component | Responsibility | Code |
 | --- | --- | --- |
 | Ingestion/API | Validate CSV text or JSON reviews, save imports and jobs, expose queries | `services/api/app/` |
 | Worker | Claim jobs, call analysis, validate results, persist or retry | `services/worker/app/` |
 | Analysis | Extract issues with Chinese/English rules and source evidence | `services/ai/app/` |
+| Human review/auth | Role checks, evidence decisions, audit history and group actions | `services/api/app/reviews/`, `services/api/app/auth/` |
 | Shared data | Models and request/response definitions | `services/common/` |
 | Midterm interface | Demo controls, state display and fault scenarios | `demo/midterm/` |
-| Product frontend | Five-page layout and mock review interactions | `frontend/` |
+| Product frontend | Live batch upload, comments, issue groups, review and documentation | `frontend/` |
 
 ### 3. One review through the system
 
@@ -84,12 +88,14 @@ erDiagram
     COMMENTS ||--o{ ANALYSIS_RUNS : analysed
     COMMENTS ||--o{ COMMENT_ISSUES : evidence
     ISSUES ||--o{ COMMENT_ISSUES : groups
-    ISSUES ||--o{ ISSUE_ACTIONS : planned_review_log
+    ISSUES ||--o{ ISSUE_ACTIONS : audit_log
+    REVIEW_USERS ||--o{ REVIEW_SESSIONS : sessions
 ```
 
-There are nine domain tables. `issue_actions` supports the planned review workflow; the table and
-request models do not mean that review-action APIs are implemented. Full fields and constraints
-are in `services/common/models.py`; migrations end at `20261027_0003`.
+There are nine domain tables plus three authentication tables: `review_users`, `review_sessions` and
+`review_login_throttles`. `issue_actions` stores immutable snapshots and idempotent receipts for implemented
+review actions. `comment_issues` has review versions and independent manual evidence hashes.
+Full fields and constraints are in `services/common/models.py`; migrations end at `20261121_0006`.
 
 Review identity is `(platform, shop_id, product_id, source_review_id)`. Missing source IDs are
 assigned a stable `synth:` ID using SHA-256 inputs. Body changes create revision records.
@@ -123,13 +129,16 @@ They do not change the full-project defaults.
 
 ### 6. Interfaces and next work
 
-Current API routes cover batch upload/progress/errors, comments, issues, job status, summary stats,
-health and metrics. Batch upload accepts JSON fields `csv_text` or `comments`; repeated batch requests
+Current API routes cover batch list/upload/progress/errors, comments, issues, job status, summary stats,
+login/logout, human review and group actions, health and metrics. Batch upload accepts JSON fields `csv_text` or `comments`; repeated batch requests
 can use the JSON `idempotency_key` field. Direct multipart upload is not implemented.
 AI exposes `/extract-issues`; `/suggest-groups` remains a baseline placeholder.
 
-Planned work: real review samples, LLM extraction, semantic grouping and evaluation; live data in the
-product frontend; persistent human decisions, group merge/split/follow-up actions; manual job replay.
+Review writes use server-derived identities, version checks and transactional audits. Source changes
+require explicit evidence rechecks; accepting a link does not automatically confirm its issue group.
+The full contracts and local verification record are in [human review](human-review.md).
+
+Planned work: real review samples, LLM extraction, semantic grouping/evaluation and manual job replay.
 The original [target workflow image](assets/fig1_end_to_end_flow.png) remains a design reference,
 not a diagram of completed features. R2 details are in [r2-implementation.md](r2-implementation.md).
 
@@ -138,8 +147,8 @@ not a diagram of completed features. R2 details are in [r2-implementation.md](r2
 ### 1. 用途与范围
 
 完整产品用于帮助工作人员检查商品评论中的重复问题。原文及证据与分析建议分开保存，
-问题确认和处理完成应由人工决定。当前里程碑覆盖导入、后台分析、结果保存和小型演示页面。
-语义归组和完整人工复核流程仍是后续工作。
+问题确认和处理完成应由人工决定。本地人工复核分支已覆盖导入、后台分析、结果保存、真实业务页面、
+登录权限、复核与改判、人工补充、原文重核、问题跟进及合并/拆分。模型抽取、语义归组和质量评测仍是后续分析工作。
 
 ### 2. 组件与当前数据流
 
@@ -153,7 +162,7 @@ flowchart LR
     Proxy --> AI[规则分析服务]
     DB --> Presenter
     Presenter --> Page
-    Original[原前端：模拟数据]
+    Original[产品前端：真实 API] --> API
 ```
 
 演示控制程序以子进程启动现有 API、AI 和 Worker，将页面评论整理成 CSV 输入交给现有导入接口，
@@ -161,16 +170,18 @@ flowchart LR
 独立 Compose 运行演示控制程序及其 PostgreSQL 服务。
 
 原项目的 `compose.yaml` 分别运行 API、Worker、AI 和 PostgreSQL，可选启用 Prometheus。
-原前端通过 API 的 `/ui/` 提供，但业务数据仍来自模拟数据。
+产品前端通过 API 的 `/ui/` 提供，使用同源 API 读写真实业务数据。账号模式下，业务请求要求登录，
+只读成员可查询、复核员可写入，并校验 CSRF。明确启用的本地演示身份也会写入真实记录，见[人工复核说明](human-review.md)。
 
 | 组件 | 职责 | 代码 |
 | --- | --- | --- |
 | 导入／API | 校验 CSV 文本或 JSON 评论，保存导入和任务，提供查询 | `services/api/app/` |
 | Worker | 领取任务、调用分析、检查结果、保存或重试 | `services/worker/app/` |
 | 分析 | 按中英文规则提取问题和原文证据 | `services/ai/app/` |
+| 复核／认证 | 角色校验、证据决定、审计历史及问题组操作 | `services/api/app/reviews/`、`services/api/app/auth/` |
 | 共享数据 | 数据模型及输入输出格式 | `services/common/` |
 | 期中界面 | 演示控制、状态展示和故障场景 | `demo/midterm/` |
-| 产品前端 | 五页布局及模拟复核交互 | `frontend/` |
+| 产品前端 | 真实批次上传、评论、问题组、人工复核和文档入口 | `frontend/` |
 
 ### 3. 一条评论的处理过程
 
@@ -209,11 +220,13 @@ erDiagram
     COMMENTS ||--o{ ANALYSIS_RUNS : 分析
     COMMENTS ||--o{ COMMENT_ISSUES : 证据
     ISSUES ||--o{ COMMENT_ISSUES : 归组
-    ISSUES ||--o{ ISSUE_ACTIONS : 计划复核记录
+    ISSUES ||--o{ ISSUE_ACTIONS : 审计记录
+    REVIEW_USERS ||--o{ REVIEW_SESSIONS : 会话
 ```
 
-共有九张业务表。`issue_actions` 为计划中的复核流程提供数据结构；有表和输入格式不代表
-复核动作接口已经完成。完整字段和约束见 `services/common/models.py`，迁移末版为 `20261027_0003`。
+共有九张业务表，另有 `review_users`、`review_sessions`、`review_login_throttles` 三张认证表。
+已实现的复核动作通过 `issue_actions` 保存不可覆盖的快照和幂等回执，`comment_issues` 具有复核版本
+和独立人工证据摘要。完整字段和约束见 `services/common/models.py`，迁移末版为 `20261121_0006`。
 
 评论按 `(platform, shop_id, product_id, source_review_id)` 识别；缺少来源编号时，
 以 SHA-256 相关输入生成稳定的 `synth:` 编号。正文变化会追加版本记录。
@@ -243,11 +256,14 @@ Demo 单独将重试等待缩短为 3、6 秒，租约为 60 秒，不修改原�
 
 ### 6. 接口与后续工作
 
-现有 API 覆盖批次上传／进度／错误、评论、问题组、任务状态、统计、健康检查和指标。
+现有 API 覆盖批次列表／上传／进度／错误、评论、问题组、任务状态、统计、登录／退出、人工复核、
+问题组操作、健康检查和指标。
 上传使用 JSON 的 `csv_text` 或 `comments` 字段；重复批次请求可使用 JSON 的 `idempotency_key`。
 直接上传 multipart 文件尚未实现。AI 提供 `/extract-issues`，`/suggest-groups` 仍是基础占位接口。
 
-后续工作包括真实评论样本、大模型提取、语义归组及评测，产品前端接真实数据，
-人工决定与问题组合并／拆分／跟进，以及人工任务重放。
+人工写入使用后端身份、版本校验和事务审计；原文变化需显式重核，接受关联不会自动确认问题组。
+具体契约与本地验收记录见[人工复核说明](human-review.md)。
+
+后续工作包括真实评论样本、大模型提取、语义归组及评测，以及人工任务重放。
 原[目标流程图](assets/fig1_end_to_end_flow.png) 保留作设计参考，不表示全部功能已完成。
 R2 细节见 [r2-implementation.md](r2-implementation.md)。

@@ -26,11 +26,17 @@
 
 以上流程已在本地开发验收中分别验证。交付前另完成：
 
-- 400 项 Python 测试（含 40 项真实 PostgreSQL）和 8 项前端测试。
+- 405 项 Python 测试（含 40 项真实 PostgreSQL）和 8 项前端测试。
 - 独立临时 schema 中，0003→0006 升级保留旧原文、已接受决定、问题状态及审计记录；
   head→0001→head 往返和 `alembic check` 通过，仅清理本次创建的临时 schema。
 - Compose 配置按 `.env.example` 验证通过；本机验收服务与数据库保持可用。
+- Docker 镜像构建成功；禁用网络的临时容器中，应用导入、前端入口与四份交付文档完整性检查通过。
 - PR CI 增加前端测试和迁移/模型一致性检查；远端 CI 需在推送并创建 PR 后实际运行。
+
+本次复查补齐架构/模块边界文档的过时状态，并修复“关于”页文档 404。
+`/project-docs/architecture`、`/project-docs/readme`、`/project-docs/human-review`、
+`/project-docs/operations` 只提供这四份项目文档的纯文本，不开放任意文件读取；Docker 镜像包含对应文档。
+新增 5 项文档访问与边界用例，以及 1 项真实登录模式端到端验收（与上述单元/集成数量分开统计）。
 
 运行与账号开通见[运行说明](operations.md)。上线仍需配置 HTTPS 和 session 模式；
 当前共享工作区权限、规则分析覆盖率、语义归组及失败任务手动重试的边界见下文及运行说明。
@@ -487,7 +493,7 @@ REVIEW_AUTH_MODE=demo WORKER_TEST_DATABASE_URL=<独立 PostgreSQL、库名以 _t
 node --test tests/frontend/*.cjs
 ```
 
-本次本地完整回归：400 passed，包含 40 项真实 PostgreSQL 测试；有 2 条既有依赖弃用警告。
+本次本地完整回归：405 passed，包含 40 项真实 PostgreSQL 测试；有 2 条既有依赖弃用警告。
 另有 8 项 Node 前端路由/文件处理测试通过。
 验证了两位复核者竞争、同请求并发重复提交、原文/分析/问题/关联变化、
 拒绝理由、伪造操作者输入、审计失败回滚和 Worker 重跑保留人工决定。
@@ -550,5 +556,18 @@ Cookie 和令牌摘要、CSRF/跨站拦截、错误输入不回显密码、未�
 浏览器实测 3 行 CSV 导入 2 条并列出 1 条无效记录，Worker 自动完成分析；
 从批次→评论→AI 关联复核保存后返回，批次筛选与新决定均保留。缺列文件显示整批拒收及具体原因，
 只读账号没有上传入口。
+
+登录模式的真实服务验收另运行 `tests/smoke/test_human_review_live.py`：
+
+```bash
+python -m pytest -q tests/smoke/test_human_review_live.py
+```
+
+需要显式设置 `SMOKE_HUMAN_REVIEW=1`、本机测试地址 `SMOKE_BASE_URL`，并通过环境变量提供
+`SMOKE_REVIEW_USERNAME`、`SMOKE_REVIEW_PASSWORD`、`SMOKE_VIEWER_USERNAME`、`SMOKE_VIEWER_PASSWORD`。
+使用独立测试环境及已创建的复核员/只读账号；密码不写入仓库或报告。
+未启用时跳过。本次显式执行通过 1 项，使用 UUID 样例商品，不覆盖已有评论；覆盖真实 API/Worker/AI 的
+CSV 重试、接受关联、确认/跟进/解决/重开、人工补充、原文更新后证据重核、审计保留和只读/退出边界。
+这项验收不由普通单元/集成 CI 自动替代，远端 CI 状态仍待推送后确认。
 
 所有改动暂留本地 `human-review` 分支，等待用户确认后才推送。

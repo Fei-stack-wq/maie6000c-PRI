@@ -176,18 +176,16 @@
                 '<p>了解完整流程、状态机与数据模型。</p>' +
               '</div>' +
             '</div>' +
-            '<div class="doc-list">' +
-              '<a class="doc-link" href="../docs/architecture.md" target="_blank" rel="noopener">' +
-                '<span class="doc-badge">MD</span>' +
-                '<span class="doc-copy"><strong>系统架构文档</strong><code>../docs/architecture.md</code></span>' +
-                '<span class="doc-arrow" aria-hidden="true">↗</span>' +
-              '</a>' +
-              '<a class="doc-link" href="../README.md" target="_blank" rel="noopener">' +
-                '<span class="doc-badge">MD</span>' +
-                '<span class="doc-copy"><strong>项目 README</strong><code>../README.md</code></span>' +
-                '<span class="doc-arrow" aria-hidden="true">↗</span>' +
-              '</a>' +
-            '</div>' +
+            '<div class="doc-list">' + [
+              ['architecture', '系统架构文档', '组件、数据流与状态边界'],
+              ['human-review', '人工复核与验收', '账号权限、复核流程和验收步骤'],
+              ['operations', '启动与运行说明', '环境准备、日志和测试命令'],
+              ['readme', '项目 README', '项目概览与使用入口']
+            ].map(function (doc) {
+              return '<a class="doc-link" href="/project-docs/' + doc[0] + '" target="_blank" rel="noopener">' +
+                '<span class="doc-badge">MD</span><span class="doc-copy"><strong>' + doc[1] +
+                '</strong><span>' + doc[2] + '</span></span><span class="doc-arrow" aria-hidden="true">↗</span></a>';
+            }).join('') + '</div>' +
           '</section>' +
 
           '<section class="panel" aria-labelledby="team-title">' +

@@ -55,6 +55,24 @@ def auth_headers(response):
     return {**LOGIN_HEADERS, "X-CSRF-Token": response.json()["csrf_token"]}
 
 
+@pytest.mark.parametrize("document", ["architecture", "readme", "human-review", "operations"])
+def test_public_project_docs_are_local_text_without_unlocking_business_data(
+    client, enable_auth, document,
+):
+    enable_auth()
+    response = client.get(f"/project-docs/{document}")
+    assert response.status_code == 200
+    assert response.headers['content-type'].startswith('text/plain')
+    assert response.headers['x-content-type-options'] == 'nosniff'
+    assert response.text.startswith('# ')
+    assert client.get('/comments').status_code == 401
+
+
+def test_project_docs_do_not_expose_arbitrary_repository_files(client):
+    for name in ['.env', 'alembic.ini', 'services', '..%2F.env', '%2E%2E%2FREADME.md']:
+        assert client.get('/project-docs/' + name).status_code == 404
+
+
 def business_routes():
     prefixes = ("/review-", "/comments", "/comment-issues", "/issues", "/jobs", "/stats")
     return [route for route in app.routes if route.path.startswith(prefixes)]
