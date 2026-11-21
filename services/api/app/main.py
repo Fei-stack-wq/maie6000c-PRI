@@ -8,6 +8,8 @@ read endpoints are present so the static UI and the team can work in parallel.
 from __future__ import annotations
 
 import logging
+import hashlib
+import json
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
@@ -23,6 +25,9 @@ from prometheus_client import (
 from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
+from services.api.app.reviews.router import router as review_router
+from services.api.app.auth.access import require_access
+from services.api.app.auth.router import router as auth_router
 from services.api.app.ingestion import ingest_comments, parse_csv, parse_normalized
 from services.common.config import configure_logging
 from services.common.db import get_db
@@ -47,6 +52,7 @@ from services.common.schemas import (
     BatchCreateResponse,
     BatchErrorRead,
     BatchProgressRead,
+    BatchRead,
     BatchUploadRequest,
     CommentDetailRead,
     CommentIssueRead,
@@ -67,7 +73,11 @@ app = FastAPI(
     title="Review Management API",
     description="商品评论管理与重复问题发现系统（单平台初版）",
     version="0.2.0",
+    dependencies=[Depends(require_access)],
 )
+
+app.include_router(auth_router)
+app.include_router(review_router)
 
 HTTP_REQUESTS = Counter(
     "api_http_requests_total",
@@ -129,16 +139,25 @@ def _batch_progress(db: Session, batch: IngestionBatch) -> BatchProgressRead:
     failed = comment_status.get(AnalysisStatus.FAILED.value, 0)
     pending = job_status.get(JobStatus.PENDING.value, 0)
     processing = job_status.get(JobStatus.CLAIMED.value, 0)
-    coverage = round(analyzed / batch.accepted_rows, 4) if batch.accepted_rows else None
+    current_rows = sum(comment_status.values())
+    waiting = sum(comment_status.get(status.value, 0) for status in (
+        AnalysisStatus.RECEIVED, AnalysisStatus.QUEUED, AnalysisStatus.ANALYZING,
+    ))
+    failed_jobs = job_status.get(JobStatus.FAILED.value, 0)
+    coverage = round(analyzed / current_rows, 4) if current_rows else None
 
     return BatchProgressRead(
         batch_id=batch.id,
-        status=_resolve_batch_status(batch, pending, processing, failed),
+        batch=BatchRead.model_validate(batch),
+        status=_resolve_batch_status(batch, pending + waiting, processing, failed + failed_jobs),
         job_count=job_count,
         analyzed_rows=analyzed,
         failed_rows=failed,
         pending_rows=pending,
         processing_rows=processing,
+        current_rows=current_rows,
+        waiting_rows=waiting,
+        failed_jobs=failed_jobs,
         analysis_coverage=coverage,
         scope=_scope(),
     )
@@ -198,6 +217,11 @@ async def observe_requests(request: Request, call_next):
     response: Response | None = None
     try:
         response = await call_next(request)
+        if not request.url.path.startswith("/ui/"):
+            response.headers["Cache-Control"] = "no-store"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["Referrer-Policy"] = "same-origin"
+        response.headers["X-Frame-Options"] = "DENY"
         return response
     finally:
         duration = perf_counter() - start
@@ -246,13 +270,24 @@ def create_batch(
     payload: BatchUploadRequest,
     db: Session = Depends(get_db),
 ) -> BatchCreateResponse:
+    fingerprint = hashlib.sha256(json.dumps(
+        payload.model_dump(mode="json", exclude={"idempotency_key"}),
+        sort_keys=True, ensure_ascii=True,
+    ).encode()).hexdigest()
     if payload.idempotency_key:
+        if db.get_bind().dialect.name == "postgresql":
+            key = int.from_bytes(hashlib.sha256(
+                ("batch:" + payload.idempotency_key).encode(),
+            ).digest()[:8], "big", signed=True)
+            db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
         existing = db.execute(
             select(IngestionBatch).where(
                 IngestionBatch.idempotency_key == payload.idempotency_key
             )
         ).scalars().first()
         if existing is not None:
+            if existing.file_hash and existing.file_hash != fingerprint:
+                raise HTTPException(409, detail={"code": "idempotency_conflict"})
             logger.info("batch_idempotent_replay", extra={"batch_id": existing.id})
             return _batch_response(existing)
 
@@ -260,6 +295,7 @@ def create_batch(
         platform=payload.platform,
         source_type=payload.source_type.value,
         file_ref=payload.filename,
+        file_hash=fingerprint,
         idempotency_key=payload.idempotency_key,
         status=BatchStatus.RECEIVED.value,
     )
@@ -334,6 +370,28 @@ def create_batch(
     return response
 
 
+@app.get("/review-batches", response_model=list[BatchRead])
+def list_batches(
+    response: Response,
+    platform: str | None = Query(default=None, max_length=32),
+    q: str = Query(default="", max_length=200),
+    limit: int = Query(default=20, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> list[BatchRead]:
+    stmt = select(IngestionBatch)
+    if platform:
+        stmt = stmt.where(IngestionBatch.platform == platform)
+    if q.strip():
+        stmt = stmt.where(IngestionBatch.file_ref.icontains(q.strip(), autoescape=True))
+    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+    response.headers["X-Total-Count"] = str(total)
+    batches = db.scalars(stmt.order_by(
+        IngestionBatch.created_at.desc(), IngestionBatch.id,
+    ).limit(limit).offset(offset)).all()
+    return [BatchRead.model_validate(batch) for batch in batches]
+
+
 @app.get("/review-batches/{batch_id}", response_model=BatchProgressRead)
 def read_batch_progress(batch_id: str, db: Session = Depends(get_db)) -> BatchProgressRead:
     batch = _get_batch(db, batch_id)
@@ -356,21 +414,32 @@ def read_batch_errors(batch_id: str, db: Session = Depends(get_db)) -> list[Batc
 # ---------------------------------------------------------------------------
 @app.get("/comments", response_model=list[CommentRead])
 def list_comments(
+    response: Response,
+    batch_id: str | None = Query(default=None, max_length=36),
     product_id: str | None = None,
     analysis_status: str | None = None,
     has_issue: str | None = None,
+    q: str = Query(default="", max_length=200),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[CommentRead]:
-    stmt = select(Comment).order_by(Comment.created_at.desc()).limit(limit).offset(offset)
+    stmt = select(Comment)
+    if batch_id:
+        stmt = stmt.where(Comment.batch_id == batch_id)
     if product_id:
         stmt = stmt.where(Comment.product_id == product_id)
     if analysis_status:
         stmt = stmt.where(Comment.analysis_status == analysis_status)
     if has_issue:
         stmt = stmt.where(Comment.has_issue == has_issue)
-    comments = db.execute(stmt).scalars().all()
+    if q.strip():
+        stmt = stmt.where(Comment.body.icontains(q.strip(), autoescape=True))
+    total = db.scalar(select(func.count()).select_from(stmt.subquery()))
+    response.headers["X-Total-Count"] = str(total)
+    comments = db.execute(stmt.order_by(Comment.created_at.desc(), Comment.id).limit(
+        limit,
+    ).offset(offset)).scalars().all()
     return [CommentRead.model_validate(comment) for comment in comments]
 
 

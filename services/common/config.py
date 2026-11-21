@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from typing import Literal
 
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pythonjsonlogger import jsonlogger
 
@@ -12,10 +14,23 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     database_url: str = "postgresql+psycopg://postgres:postgres@db:5432/maie6000c"
     ai_service_url: str = "http://ai:8100"
+    review_auth_mode: Literal["demo", "session"] = "demo"
+    review_demo_operator: str = "demo-reviewer"
+    review_cookie_secure: bool = True
+    review_session_hours: int = Field(default=8, ge=1, le=24)
     worker_poll_seconds: float = 2.0
     worker_request_timeout_seconds: float = 20.0
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def require_secure_deployment(self):
+        if self.app_env not in {"development", "test"}:
+            if self.review_auth_mode != "session" or not self.review_cookie_secure:
+                raise ValueError(
+                    "Non-development deployments require session auth and HTTPS cookies"
+                )
+        return self
 
 
 @lru_cache(maxsize=1)

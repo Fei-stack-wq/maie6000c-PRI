@@ -1,8 +1,28 @@
 # Development Progress / 开发进度
 
+## Local human-review branch update / 本地分支进展 — 2026-11-21
+
+The local `human-review` branch now persists review decisions/revisions, reassignment, manual evidence,
+source rechecks, issue follow-up and merge/split, with login and reviewer/viewer roles.
+CSV upload, batch progress, comments, issue groups and review pages share real APIs and deep links;
+model extraction/semantic grouping and the other analysis/operations items below are still separate work.
+Validation: 400 Python tests (40 PostgreSQL) and 8 frontend tests passed, with browser flow checks.
+These changes have not been pushed. Details: [Human review](human-review.md).
+Delivery preparation also verifies legacy-data migration preservation, migration/model consistency,
+and Compose configuration, and adds the frontend tests to PR CI. Remote CI is not yet run.
+
+本地 `human-review` 分支已实现复核、改判、调整归组、人工补充、原文重核、问题跟进及合并/拆分，
+并接入账号登录与复核员/只读权限。真实 CSV 上传、批次进度、评论页、问题组页和复核页已共用接口并完成跨页联调。
+400 项 Python 测试（含 40 项 PostgreSQL）、8 项前端测试及浏览器验收通过，尚未推送。
+上传支持行级错误、整批拒收及幂等重试；模型/语义归组等分析工作及其他运维事项仍待完成。
+交付前补充验证了旧数据迁移保留、迁移/模型一致性和 Compose 配置，并把前端测试纳入 PR CI。
+运行说明及人工验收步骤已更新；尚未运行远端 CI。
+
+The sections below retain the 29 October milestone record. / 下文保留 10 月 29 日里程碑记录。
+
 ## English
 
-### 1. Current snapshot — 29 October 2026
+### 1. Historical snapshot — 29 October 2026
 
 The working path is review submission → database/job creation → background rule analysis →
 evidence validation → saved results shown in the midterm demo. The original product frontend still
@@ -44,7 +64,7 @@ Commands, conditions and the result screenshot are indexed in the
 
 ## 中文
 
-### 1. 当前状态——2026 年 10 月 29 日
+### 1. 历史状态——2026 年 10 月 29 日
 
 已接通评论提交 → 入库建任务 → 后台规则分析 → 证据检查 → 结果保存并在期中 Demo 展示。
 原产品前端仍使用模拟数据。期中界面使用项目后台和独立的 PostgreSQL 数据库。

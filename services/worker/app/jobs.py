@@ -1,12 +1,12 @@
 """Transactional task lifecycle. Every final write is fenced by its original claim."""
-import hashlib
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import and_, or_, select, text, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
+from services.common.locking import lock_issue_groups
 from services.common.models import (
     AnalysisRun, AnalysisStatus, Comment, CommentIssue, Issue, IssueStatus,
     Job, JobStatus, LinkOrigin, LinkStatus, utcnow,
@@ -103,7 +103,9 @@ def _supersede_suggestions(db: Session, comment_id: str) -> None:
             CommentIssue.status == LinkStatus.SUGGESTED.value,
             CommentIssue.decided_at.is_(None), CommentIssue.decided_by.is_(None),
             CommentIssue.superseded_at.is_(None),
-        ).values(superseded_at=utcnow())
+        ).values(
+            superseded_at=utcnow(), review_version=CommentIssue.review_version + 1,
+        )
     )
 
 
@@ -149,19 +151,12 @@ def _requeue_changed_input(db: Session, job: Job, comment: Comment) -> None:
     _supersede_suggestions(db, comment.id)
 
 
-def _group_lock(db: Session, snapshot: AnalysisInput, category: str) -> None:
-    if db.get_bind().dialect.name == "postgresql":
-        raw = repr((snapshot.platform, snapshot.shop_id, snapshot.product_id, category))
-        key = int.from_bytes(hashlib.sha256(raw.encode()).digest()[:8], "big", signed=True)
-        db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
-
-
 def save_issue_links(
     db: Session, snapshot: AnalysisInput, verified: VerifiedAnalysis, run_id: int,
 ) -> None:
     # Sort lock acquisition to avoid cross-category deadlocks between comments.
-    for category in sorted({entry.issue.category_id for entry in verified.issues}):
-        _group_lock(db, snapshot, category)
+    lock_issue_groups(db, snapshot.platform, snapshot.shop_id, snapshot.product_id,
+                      {entry.issue.category_id for entry in verified.issues})
     _supersede_suggestions(db, snapshot.comment_id)
     seen = set()
     for entry in verified.issues:
@@ -202,6 +197,7 @@ def save_issue_links(
         if link is None:
             link = CommentIssue(comment_id=snapshot.comment_id, issue_id=issue.id)
             db.add(link)
+        link.review_version = (link.review_version or 0) + 1
         link.status = LinkStatus.SUGGESTED.value
         link.origin = LinkOrigin.AI.value
         link.evidence_text = extracted.evidence_text

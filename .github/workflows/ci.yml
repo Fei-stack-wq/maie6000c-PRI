@@ -19,7 +19,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d maie6000c"
+          --health-cmd "pg_isready -U postgres -d maie6000c_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
@@ -38,6 +38,11 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -53,6 +58,12 @@ jobs:
         run: |
           alembic downgrade 20260713_0001
           alembic upgrade head
+
+      - name: Verify migration/model consistency
+        run: alembic check
+
+      - name: Frontend routing and CSV upload tests
+        run: node --test tests/frontend/*.cjs
 
       - name: Unit and integration tests
         run: pytest -q tests/unit tests/integration

@@ -113,3 +113,189 @@ def ai_response(monkeypatch):
 
     monkeypatch.setattr(httpx, "post", reply)
     return Reply, reply, calls
+
+
+@pytest.fixture()
+def review_candidate(new_job, worker_setup, session_factory, client, ai_response):
+    def create(body="拉链卡住了。", **kwargs):
+        _, comment_id, _ = new_job(body=body, **kwargs)
+        with session_factory() as db:
+            claim = worker_setup.claim_next_pending_job(db)
+        assert worker_setup.process_job(claim) == "completed"
+        from services.common.models import CommentIssue
+        with session_factory() as db:
+            link = db.query(CommentIssue).filter_by(comment_id=comment_id).one()
+            link_id = link.id
+        return client.get(f"/comment-issues/{link_id}").json()
+    return create
+
+
+@pytest.fixture()
+def review_payload():
+    import uuid
+
+    def create(item, decision="accept", note="核对原文"):
+        return {"request_id": str(uuid.uuid4()), "expected_token": item["token"],
+                "decision": decision, "note": note}
+    return create
+
+
+@pytest.fixture()
+def reassign_target(session_factory):
+    from services.common.models import Issue
+
+    def create(item, **changes):
+        values = {key: item["comment"][key] for key in ("platform", "shop_id", "product_id")}
+        values.update(category_id="usability", title="拉链使用不顺畅", created_by="human")
+        values.update(changes)
+        with session_factory() as db:
+            issue = Issue(**values)
+            db.add(issue)
+            db.commit()
+            return issue.id
+    return create
+
+
+@pytest.fixture()
+def reassign_payload(client):
+    import uuid
+
+    def create(item, target_id):
+        response = client.get(f"/comment-issues/{item['link']['id']}/reassign-targets")
+        assert response.status_code == 200, response.text
+        target = next(row for row in response.json()["items"] if row["issue"]["id"] == target_id)
+        return {"request_id": str(uuid.uuid4()), "expected_token": item["token"],
+                "target_issue_id": target_id, "expected_target_token": target["token"],
+                "note": "核对原文，调整到更准确的问题组"}
+    return create
+
+
+@pytest.fixture()
+def manual_candidate(new_job, session_factory, worker_setup, ai_response, client):
+    def create(body="售后一直没有回复。", **kwargs):
+        _, comment_id, _ = new_job(body=body, **kwargs)
+        with session_factory() as db:
+            claim = worker_setup.claim_next_pending_job(db)
+        assert worker_setup.process_job(claim) == "completed"
+        return client.get(f"/review-comments/{comment_id}").json()
+    return create
+
+
+@pytest.fixture()
+def manual_payload():
+    import uuid
+
+    def create(item, evidence=None, **changes):
+        body = item["comment"]["body"]
+        evidence = evidence if evidence is not None else body
+        start = body.find(evidence)
+        values = {"request_id": str(uuid.uuid4()), "expected_token": item["token"],
+                  "evidence_text": evidence, "evidence_start": start,
+                  "evidence_end": start + len(evidence), "note": "核对原文，补充漏检问题",
+                  "new_issue": {"title": "售后不回复", "category_id": "other"}}
+        values.update(changes)
+        return values
+    return create
+
+
+@pytest.fixture()
+def issue_candidate(client, review_candidate, review_payload):
+    def create(accepted=True, **kwargs):
+        link = review_candidate(**kwargs)
+        if accepted:
+            response = client.post(f"/comment-issues/{link['link']['id']}/decisions",
+                                   json=review_payload(link))
+            assert response.status_code == 200
+            link = client.get(f"/comment-issues/{link['link']['id']}").json()
+        issue = client.get(f"/review-issues/{link['issue']['id']}").json()
+        return link, issue
+    return create
+
+
+@pytest.fixture()
+def issue_payload():
+    import uuid
+
+    def create(item, action="confirm", note="核对证据后记录问题组判断"):
+        return {"request_id": str(uuid.uuid4()), "expected_token": item["token"],
+                "action": action, "note": note}
+    return create
+
+
+@pytest.fixture()
+def structure_case(client, issue_candidate, review_payload, reassign_target):
+    def create():
+        first, _ = issue_candidate()
+        second, _ = issue_candidate(accepted=False)
+        third, _ = issue_candidate(accepted=False)
+        assert client.post(f"/comment-issues/{third['link']['id']}/decisions",
+                           json=review_payload(third, "reject", "原组中不成立")).status_code == 200
+        links = [client.get(f"/comment-issues/{r['link']['id']}").json()
+                 for r in (first, second, third)]
+        source = client.get(f"/review-issues/{first['issue']['id']}").json()
+        target_id = reassign_target(first)
+        target = client.get(f"/review-issues/{target_id}").json()
+        return links, source, target
+    return create
+
+
+@pytest.fixture()
+def structure_payload():
+    import uuid
+
+    def create(source, target=None, ids=None, **changes):
+        data = {"request_id": str(uuid.uuid4()), "expected_token": source["token"],
+                "note": "核对原文，整理重复或混合的问题组"}
+        if target:
+            data.update(target_issue_id=target["issue"]["id"],
+                        expected_target_token=target["token"])
+        else:
+            data.update(comment_issue_ids=ids,
+                        new_issue={"title": "拆出的独立问题", "category_id": "other"})
+        data.update(changes)
+        return data
+    return create
+
+
+@pytest.fixture()
+def update_review_source(client, session_factory, worker_setup, ai_response):
+    def update(item, body="😀 拉链又卡住了。再次反馈：拉链又卡住了。", finish=True):
+        c = item["comment"]
+        response = client.post("/review-batches", json={"platform": c["platform"], "comments": [{
+            **{key: c[key] for key in ("platform", "shop_id", "product_id", "source_review_id")},
+            "body": body,
+        }]})
+        assert response.status_code == 202, response.text
+        if finish:
+            with session_factory() as db:
+                claim = worker_setup.claim_next_pending_job(db)
+            assert worker_setup.process_job(claim) == "completed"
+        return client.get(f"/comment-issues/{item['link']['id']}").json()
+    return update
+
+
+@pytest.fixture()
+def recheck_case(client, issue_candidate, issue_payload, update_review_source):
+    def create(**kwargs):
+        old, group = issue_candidate()
+        assert client.post(f"/issues/{group['issue']['id']}/actions",
+                           json=issue_payload(group)).status_code == 200
+        old = client.get(f"/comment-issues/{old['link']['id']}").json()
+        return old, update_review_source(old, **kwargs)
+    return create
+
+
+@pytest.fixture()
+def recheck_payload():
+    import uuid
+
+    def create(item, decision="accept", evidence=None, **changes):
+        quote = evidence if evidence is not None else item["comment"]["body"]
+        start = item["comment"]["body"].find(quote)
+        data = {"request_id": str(uuid.uuid4()), "expected_token": item["token"],
+                "decision": decision, "note": "核对变化后的原文，重新判断当前关联"}
+        if decision == "accept" or evidence is not None:
+            data.update(evidence_text=quote, evidence_start=start, evidence_end=start + len(quote))
+        data.update(changes)
+        return data
+    return create

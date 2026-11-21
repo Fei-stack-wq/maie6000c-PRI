@@ -1,0 +1,2 @@
+shop_id,product_id,source_review_id,review_date,rating,body
+example-shop,example-product,example-review-001,2026-11-21,2,"示例：拉链卡住了。请将本行替换为真实评论后上传。"

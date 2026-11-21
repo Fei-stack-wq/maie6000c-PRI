@@ -13,8 +13,9 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from services.common.models import (
     AnalysisStatus,
@@ -89,6 +90,13 @@ class BatchUploadRequest(BaseModel):
     csv_text: str | None = None
     comments: list[NormalizedComment] | None = None
 
+    @field_validator("platform", "filename", "idempotency_key")
+    @classmethod
+    def _safe_upload_metadata(cls, value: str | None) -> str | None:
+        if value is not None and (not value.strip() or "\x00" in value):
+            raise ValueError("upload metadata must be nonempty and contain no NUL characters")
+        return value.strip() if value is not None else None
+
     @model_validator(mode="after")
     def _require_payload(self) -> "BatchUploadRequest":
         if bool(self.csv_text) == bool(self.comments):
@@ -97,10 +105,9 @@ class BatchUploadRequest(BaseModel):
 
 
 class BatchCreateResponse(BaseModel):
-    """202 response: batch accepted, jobs are created after async validation.
+    """202 response after validation/import; analysis runs asynchronously.
 
-    ``job_count`` is ``None`` until the batch leaves ``validating``; clients poll
-    ``GET /review-batches/{id}`` (``BatchProgressRead``) for counts.
+    A replay may omit ``job_count``; clients read the batch progress for current counts.
     """
 
     batch_id: str
@@ -118,6 +125,7 @@ class BatchRead(OrmModel):
     id: str
     platform: str
     source_type: SourceType
+    file_ref: str | None = None
     declared_rows: int | None = None
     accepted_rows: int = 0
     duplicate_rows: int = 0
@@ -131,12 +139,16 @@ class BatchProgressRead(BaseModel):
     """Batch progress for the UI: import counters + analysis counters (derived)."""
 
     batch_id: str
+    batch: BatchRead
     status: BatchStatus
     job_count: int = 0
     analyzed_rows: int = 0
     failed_rows: int = 0
     pending_rows: int = 0
     processing_rows: int = 0
+    current_rows: int = 0
+    waiting_rows: int = 0
+    failed_jobs: int = 0
     analysis_coverage: float | None = None
     scope: QueryScope
 
@@ -161,6 +173,7 @@ class CommentIssueRead(OrmModel):
     evidence_start: int | None = None
     evidence_end: int | None = None
     evidence_verified: bool = False
+    evidence_body_hash: str | None = None
     similarity: float | None = None
     analysis_run_id: int | None = None
     comment_version: int = 1
@@ -408,3 +421,355 @@ class GroupSuggestionResult(BaseModel):
         if self.action == GroupingAction.LINK_EXISTING and not self.issue_id:
             raise ValueError("link_existing requires issue_id")
         return self
+
+
+# Human decisions distinguish first review from an explicit revision of a prior decision.
+class ReviewDecisionMode(StrEnum):
+    INITIAL = "initial"
+    REVISE = "revise"
+
+
+class ReviewDecisionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    request_id: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
+    decision: LinkDecision
+    mode: ReviewDecisionMode = ReviewDecisionMode.INITIAL
+    expected_token: str = Field(pattern=r"^[0-9a-f]{64}$")
+    note: str = Field(default="", max_length=500)
+
+    @model_validator(mode="after")
+    def _validate_decision(self) -> "ReviewDecisionRequest":
+        from uuid import UUID
+
+        self.request_id = str(UUID(self.request_id))
+        if self.decision == LinkDecision.CHANGE:
+            raise ValueError("decision must specify accept or reject; use reassign for regrouping")
+        if self.mode == ReviewDecisionMode.REVISE and not self.note:
+            raise ValueError("revising a decision requires a reason")
+        if self.decision == LinkDecision.REJECT and not self.note:
+            raise ValueError("rejection requires a reason")
+        return self
+
+
+class ReviewRead(BaseModel):
+    link: CommentIssueRead
+    comment: CommentRead
+    issue: IssueRead
+    review_version: int
+    token: str
+    can_decide: bool
+    can_revise: bool = False
+    can_reassign: bool = False
+    needs_recheck: bool = False
+    can_recheck: bool = False
+    recheck_blocked_reason: str | None = None
+    evidence_body: str | None = None
+    reassign_blocked_reason: str | None = None
+    revision_blocked_reason: str | None = None
+    blocked_reason: str | None = None
+    actions: list[IssueActionRead] = Field(default_factory=list)
+
+
+class ReviewQueueRead(BaseModel):
+    items: list[ReviewRead]
+    total: int
+    limit: int
+    offset: int
+    operator: str
+    identity_mode: str = "demo"
+
+
+class ReviewDecisionRead(BaseModel):
+    action_id: int
+    request_id: str
+    link_id: int
+    status: LinkStatus
+    review_version: int
+    operator: str
+    decided_at: datetime
+
+
+class ReassignRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    request_id: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
+    expected_token: str = Field(pattern=r"^[0-9a-f]{64}$")
+    target_issue_id: str = Field(min_length=1, max_length=36)
+    expected_target_token: str = Field(pattern=r"^[0-9a-f]{64}$")
+    note: str = Field(min_length=1, max_length=500)
+
+    @model_validator(mode="after")
+    def _normalize_request_id(self) -> "ReassignRequest":
+        from uuid import UUID
+
+        self.request_id = str(UUID(self.request_id))
+        return self
+
+
+class ReassignTargetRead(BaseModel):
+    issue: IssueRead
+    token: str
+    existing_link_id: int | None = None
+    existing_link_status: LinkStatus | None = None
+    selectable: bool
+    blocked_reason: str | None = None
+
+
+class ReassignTargetsRead(BaseModel):
+    items: list[ReassignTargetRead]
+    total: int
+    limit: int
+    offset: int
+
+
+class ReassignRead(BaseModel):
+    request_id: str
+    source_link_id: int
+    target_link_id: int
+    source_issue_id: str
+    target_issue_id: str
+    source_action_id: int
+    target_action_id: int
+    operator: str
+    decided_at: datetime
+
+
+class ManualIssueCreate(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    title: str = Field(min_length=1, max_length=200)
+    category_id: str
+
+    @field_validator("category_id")
+    @classmethod
+    def _category(cls, value):
+        from services.common.categories import is_valid_category
+        if not is_valid_category(value):
+            raise ValueError("unknown category")
+        return value
+
+
+class ManualLinkRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
+    expected_token: str = Field(pattern=r"^[0-9a-f]{64}$")
+    target_issue_id: str | None = Field(default=None, min_length=1, max_length=36)
+    expected_target_token: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
+    new_issue: ManualIssueCreate | None = None
+    evidence_text: str = Field(min_length=1, max_length=2000)
+    evidence_start: int = Field(ge=0, le=2000, strict=True)
+    evidence_end: int = Field(gt=0, le=2000, strict=True)
+    note: str = Field(min_length=1, max_length=500)
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def _strip_note(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _validate(self):
+        from uuid import UUID
+        self.request_id = str(UUID(self.request_id))
+        if bool(self.target_issue_id) == bool(self.new_issue):
+            raise ValueError("choose an existing issue or create one, exclusively")
+        if bool(self.target_issue_id) != bool(self.expected_target_token):
+            raise ValueError("existing target requires its token")
+        if not self.evidence_text.strip() or self.evidence_start >= self.evidence_end:
+            raise ValueError("provide a nonempty verbatim evidence span")
+        return self
+
+
+class ManualCommentRead(BaseModel):
+    comment: CommentRead
+    token: str
+    can_add: bool
+    blocked_reason: str | None = None
+    links: list[ReviewRead]
+
+
+class ManualCommentQueueRead(BaseModel):
+    items: list[CommentRead]
+    total: int
+    limit: int
+    offset: int
+    operator: str
+
+
+class ManualLinkRead(BaseModel):
+    request_id: str
+    link_id: int
+    issue_id: str
+    action_id: int
+    created_issue: bool
+    operator: str
+    decided_at: datetime
+
+
+class IssueWorkflowRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    request_id: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
+    expected_token: str = Field(pattern=r"^[0-9a-f]{64}$")
+    action: Literal["confirm", "follow_up", "resolve", "dismiss", "reopen"]
+    note: str = Field(min_length=1, max_length=500)
+
+    @field_validator("request_id")
+    @classmethod
+    def _request_id(cls, value):
+        from uuid import UUID
+        return str(UUID(value))
+
+
+class IssueWorkflowRead(BaseModel):
+    issue: IssueRead
+    token: str
+    valid_accepted_count: int
+    invalid_accepted_count: int
+    evidence_total: int
+    allowed_actions: list[str]
+    blocked_actions: dict[str, str]
+    actions: list[IssueActionRead] = Field(default_factory=list)
+    active_link_count: int = 0
+    can_restructure: bool = False
+
+
+class IssueWorkflowQueueRead(BaseModel):
+    items: list[IssueWorkflowRead]
+    total: int
+    limit: int
+    offset: int
+    operator: str
+
+
+class IssueEvidenceRead(BaseModel):
+    review: ReviewRead
+    usable: bool
+    blocked_reason: str | None = None
+
+
+class IssueEvidencePage(BaseModel):
+    items: list[IssueEvidenceRead]
+    total: int
+    limit: int
+    offset: int
+
+
+class IssueWorkflowActionRead(BaseModel):
+    request_id: str
+    issue_id: str
+    action_id: int
+    action: str
+    status: IssueStatus
+    version: int
+    operator: str
+    created_at: datetime
+
+
+class IssueStructureRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    request_id: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
+    expected_token: str = Field(pattern=r"^[0-9a-f]{64}$")
+    note: str = Field(min_length=1, max_length=500)
+
+    @field_validator("request_id")
+    @classmethod
+    def _request_id(cls, value):
+        from uuid import UUID
+        return str(UUID(value))
+
+
+class IssueMergeRequest(IssueStructureRequest):
+    target_issue_id: str = Field(min_length=1, max_length=36)
+    expected_target_token: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class IssueSplitRequest(IssueStructureRequest):
+    comment_issue_ids: list[int] = Field(min_length=1, max_length=100)
+    new_issue: ManualIssueCreate
+
+    @field_validator("comment_issue_ids", mode="before")
+    @classmethod
+    def _ids(cls, value):
+        if not isinstance(value, list) or any(type(i) is not int or i < 1 for i in value):
+            raise ValueError("positive integer link IDs required")
+        if len(value) != len(set(value)):
+            raise ValueError("duplicate link IDs")
+        return sorted(value)
+
+
+class IssueMergeConflict(BaseModel):
+    source_link_id: int
+    target_link_id: int
+    comment_id: str
+    reason: str
+
+
+class IssueMergeTargetRead(BaseModel):
+    target: IssueWorkflowRead
+    copied_count: int
+    deduplicated_count: int
+    reactivated_count: int
+    conflicts: list[IssueMergeConflict]
+    selectable: bool
+
+
+class IssueMergeTargetsRead(BaseModel):
+    items: list[IssueMergeTargetRead]
+    total: int
+    limit: int
+    offset: int
+
+
+class IssueStructureRead(BaseModel):
+    request_id: str
+    operation: Literal["merge", "split"]
+    source_issue_id: str
+    target_issue_id: str
+    source_action_id: int
+    target_action_id: int
+    copied_count: int
+    deduplicated_count: int
+    reactivated_count: int
+    operator: str
+    created_at: datetime
+
+
+class ReviewRecheckRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    request_id: str = Field(pattern=r"^[0-9a-fA-F-]{36}$")
+    expected_token: str = Field(pattern=r"^[0-9a-f]{64}$")
+    decision: Literal["accept", "reject"]
+    note: str = Field(min_length=1, max_length=500)
+    evidence_text: str | None = Field(default=None, min_length=1, max_length=2000)
+    evidence_start: int | None = Field(default=None, ge=0, le=2000, strict=True)
+    evidence_end: int | None = Field(default=None, gt=0, le=2000, strict=True)
+
+    @field_validator("note", mode="before")
+    @classmethod
+    def _note(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+    @model_validator(mode="after")
+    def _validate(self):
+        from uuid import UUID
+        self.request_id = str(UUID(self.request_id))
+        parts = (self.evidence_text, self.evidence_start, self.evidence_end)
+        if any(p is not None for p in parts):
+            if any(p is None for p in parts):
+                raise ValueError("provide the whole evidence span")
+            if not self.evidence_text.strip() or self.evidence_start >= self.evidence_end:
+                raise ValueError("nonempty evidence span required")
+        elif self.decision == "accept":
+            raise ValueError("acceptance requires current verbatim evidence")
+        return self
+
+
+class ReviewRecheckRead(ReviewDecisionRead):
+    issue_id: str
+    issue_action_id: int
+    issue_status: IssueStatus
+    issue_version: int

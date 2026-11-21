@@ -37,11 +37,24 @@ keep an existing `.env` if it contains your settings.
 | Address | Use |
 | --- | --- |
 | `http://localhost:8000/docs` | Submit real batches and query the backend |
-| `http://localhost:8000/ui/` | Original frontend; its business data is mock data |
+| `http://localhost:8000/ui/` | Live CSV upload, batch progress, comments, issue groups and human review |
 | `http://localhost:8100/docs` | Rule-analysis API |
 | `http://localhost:9090` | Prometheus after `docker compose --profile observability up -d` |
 
-API startup applies the existing migrations. To add prepared sample data, run
+API startup applies migrations through `20261121_0006`. The example configuration uses explicit demo identity.
+For named accounts, set `REVIEW_AUTH_MODE=session` and `REVIEW_COOKIE_SECURE=false` for local HTTP,
+then recreate the API with `docker compose up -d --force-recreate api`. Provision accounts interactively:
+
+```bash
+docker compose exec api python -m services.api.app.auth.manage create reviewer1 --role reviewer
+docker compose exec api python -m services.api.app.auth.manage create viewer1 --role viewer
+```
+
+Use a reviewer to upload and review; a viewer can only read. HTTPS deployments keep Secure cookies enabled;
+see [human review](human-review.md) for configuration, role boundaries and acceptance steps.
+The demo mode also writes real database records; it is not a dry run.
+
+To add prepared sample data, run
 `docker compose exec api python -m scripts.seed_demo_data`.
 Seeded records are example data, not evidence of a newly executed analysis.
 Stop this stack with `docker compose down`; this keeps its data volume.
@@ -72,8 +85,8 @@ docker compose -f compose.midterm.yaml exec midterm-demo python -c "import urlli
 ### 4. Failures and recovery
 
 A retryable failure returns the job to `pending` and the comment to `queued`, with a next-run time.
-Final failures remain `failed`. The demo shows failures directly; the original project exposes them
-through query APIs, while its mock frontend does not yet show live failures.
+Final failures remain `failed`. The demo shows failures directly; the original project shows live
+analysis states in batch details and comment lists, with additional error codes available through job APIs.
 Every worker poll checks for expired claims and requeues or finally fails them according to the limit.
 The same recovery can be invoked in the original stack:
 
@@ -91,8 +104,13 @@ For configuration and error rules, see [R2 implementation](r2-implementation.md)
 | Demo's ten bilingual cases | Idle demo: ` .\scripts\start_midterm_demo.ps1 -Action check `; macOS/Linux command is in the demo instructions |
 | Complete R2 checks | Windows with Docker: ` .\scripts\test_r2.ps1 ` creates and removes isolated test resources |
 | Unit/integration only | Python 3.11 with `pip install -e ".[dev]"`: `python -m pytest -q tests/unit tests/integration` |
-| PostgreSQL locking tests | Included above only with `WORKER_TEST_DATABASE_URL` pointing to a separate PostgreSQL database ending in `_test`; otherwise six tests skip |
+| PostgreSQL locking tests | Included above only with `WORKER_TEST_DATABASE_URL` pointing to a separate PostgreSQL database ending in `_test`; otherwise the PostgreSQL cases skip (currently 40 cases) |
+| Frontend routes and CSV handling | Node 22: `node --test tests/frontend/*.cjs` |
 | Original-stack smoke | `SMOKE_BASE_URL=http://localhost:8000 pytest tests/smoke -q` runs the basic smoke case; four fault/recovery cases require the isolated runner |
+
+The local human-review delivery passed 400 Python tests (including 40 PostgreSQL cases) and
+8 frontend tests. PR CI also runs the frontend tests and `alembic check`; this record does not imply
+a remote CI run before the branch is pushed.
 
 The R2 script runs unit/integration tests, five real-service smoke tests, migration round-trips
 and shutdown checks. The earlier recorded run passed 94 unit/integration tests; a later delivery-rule
@@ -150,11 +168,23 @@ Windows 也可使用 `Copy-Item .env.example .env`。只在首次准备时复制
 | 地址 | 用途 |
 | --- | --- |
 | `http://localhost:8000/docs` | 提交真实批次、查询后台 |
-| `http://localhost:8000/ui/` | 原前端，业务数据仍为模拟数据 |
+| `http://localhost:8000/ui/` | 真实 CSV 上传、批次进度、评论、问题组和人工复核 |
 | `http://localhost:8100/docs` | 规则分析 API |
 | `http://localhost:9090` | 执行 `docker compose --profile observability up -d` 后的 Prometheus |
 
-API 启动时执行现有迁移。加入预制示例数据可执行
+API 启动时迁移到 `20261121_0006`。示例配置使用明确标注的演示身份。
+启用独立账号时，在 `.env` 设置 `REVIEW_AUTH_MODE=session`；本机 HTTP 同时设置
+`REVIEW_COOKIE_SECURE=false`，再执行 `docker compose up -d --force-recreate api`。交互创建账号：
+
+```bash
+docker compose exec api python -m services.api.app.auth.manage create reviewer1 --role reviewer
+docker compose exec api python -m services.api.app.auth.manage create viewer1 --role viewer
+```
+
+复核员可以上传和复核，只读成员仅能查询。HTTPS 部署保持 Secure Cookie；详细配置、权限边界
+和验收步骤见[人工复核说明](human-review.md)。演示身份也会写入真实数据库，不是模拟提交。
+
+加入预制示例数据可执行
 `docker compose exec api python -m scripts.seed_demo_data`。
 种子记录是示例数据，不能作为刚刚执行了一次分析的证据。
 使用 `docker compose down` 停止此栈，数据卷保留。
@@ -184,7 +214,7 @@ docker compose -f compose.midterm.yaml exec midterm-demo python -c "import urlli
 ### 4. 失败与回收
 
 可重试失败将任务放回 `pending`、评论放回 `queued`，并设置下次执行时间；最终失败保持 `failed`。
-小 Demo 直接展示失败；原项目可通过查询接口查看，模拟前端尚不能展示实时失败。
+小 Demo 直接展示失败；原项目的批次详情和评论列表展示真实分析状态，具体错误码可通过任务接口查看。
 Worker 每轮检查过期领取，根据剩余次数重新排队或最终失败。原项目也可以手动调用同一回收逻辑：
 
 ```bash
@@ -201,8 +231,12 @@ docker compose exec worker python -m scripts.recover_stale_jobs
 | Demo 十个双语用例 | 页面空闲时执行 ` .\scripts\start_midterm_demo.ps1 -Action check `；macOS/Linux 命令见 Demo 说明 |
 | 完整 R2 检查 | Windows 启动 Docker 后执行 ` .\scripts\test_r2.ps1 `，脚本创建并清理独立测试资源 |
 | 仅单元／集成 | Python 3.11 执行 `pip install -e ".[dev]"` 后运行 `python -m pytest -q tests/unit tests/integration` |
-| PostgreSQL 锁测试 | 需将 `WORKER_TEST_DATABASE_URL` 指向名称以 `_test` 结尾的独立 PostgreSQL 测试库，否则六项跳过 |
+| PostgreSQL 锁测试 | 需将 `WORKER_TEST_DATABASE_URL` 指向名称以 `_test` 结尾的独立 PostgreSQL 测试库，否则 PostgreSQL 用例跳过（当前 40 项） |
+| 前端路由与 CSV 文件处理 | Node 22：`node --test tests/frontend/*.cjs` |
 | 原项目冒烟 | `SMOKE_BASE_URL=http://localhost:8000 pytest tests/smoke -q` 执行基础用例；四项故障／回收用例需要隔离启动脚本 |
+
+本地人工复核交付已通过 400 项 Python 测试（含 40 项 PostgreSQL）和 8 项前端测试。
+PR 的 CI 同时执行前端测试和 `alembic check`；尚未推送时，这不是远端 CI 已运行的证明。
 
 完整 R2 脚本运行单元／集成、5 项真实服务冒烟、迁移往返和正常退出检查。
 较早记录为 94 项单元／集成通过；后续物流规则扩展另通过 78 项分析单元测试和四例真实 Demo 回归。
