@@ -32,6 +32,12 @@ def call_llm_extraction(
         'Return JSON with "has_issue" (yes, no, or unknown) and "issues" (array). '
         'Each issue has "category_id", "description", and "evidence_text". '
         "Use at most one issue per category. Keep the description in the review language. "
+        "Write description as one short concrete problem phrase (about 40 characters or fewer); "
+        "one issue only — never combine two different problems in one description. "
+        "Name the concrete failure (what broke / what is wrong); "
+        "avoid vague lines like 'not like when I bought it' or 'completely different'. "
+        "do not include emotion, refund, or customer-service talk. "
+        "Prefer stable wording for the same specific issue so later grouping can match. "
         "Copy evidence_text verbatim from the review. "
         "For yes include at least one issue. For no or unknown return an empty array. "
         "Use unknown if there is insufficient information."

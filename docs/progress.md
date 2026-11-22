@@ -14,7 +14,7 @@ uses mock data. The midterm interface uses the project backend and its own Postg
 | --- | --- | --- |
 | Data/ingestion | Nine domain tables, migrations, CSV/JSON checks, row errors, deduplication, revisions and queries | Real platform samples, direct file upload, error export and pagination improvements |
 | Background jobs | Claim ownership, retries, expiry recovery, transactional saves, evidence validation, changed-input requeue and metrics | Manual task retry/recover endpoints, batch replay and persistent task-operation audit |
-| Analysis | Model extraction, rule fallback, source tracking, three-way result and original evidence; category grouping | Key-free adapter/fallback tests, semantic grouping, labelled evaluation and cost records |
+| Analysis | Model extraction, rule fallback, source tracking, three-way result and evidence; `/suggest-groups` MiniLM + keyword gate + dual thresholds + top2 margin (T_main 0.35 / T_overlap 0.55 / margin 0.08 on LLM `pairs_llm.jsonl`, ~82% accuracy); Compose AI installs `[grouping]`; hashing kept for CI-only | Key-free adapter/fallback tests, second-annotator spot-check, cost records |
 | Product frontend | Five-page layout, filtering/detail views and mock review interactions | Live API data and persistent human decisions/follow-up |
 | Midterm demo | Separate source build/database, Chinese and English URLs, normal/retry/failure scenarios, startup/check/stop scripts | No further demo features planned for this milestone |
 
@@ -40,7 +40,7 @@ Commands, conditions and the result screenshot are indexed in the
 ### 4. Next steps
 
 1. Collect representative reviews and evaluate missed and wrongly flagged complaints.
-2. Add mocked adapter/fallback tests, evaluate model extraction and implement semantic grouping.
+2. Add mocked adapter/fallback tests; optional second-annotator spot-check on grouping pairs; cost records.
 3. Connect the product frontend and persist human review and follow-up.
 4. Add manual task replay and task-operation records.
 
@@ -57,7 +57,7 @@ Commands, conditions and the result screenshot are indexed in the
 | --- | --- | --- |
 | 数据／接入 | 九张业务表、迁移、CSV／JSON 检查、错误行、去重、版本和查询 | 真实平台样本、直接文件上传、错误导出和分页改进 |
 | 后台任务 | 领取归属、重试、过期回收、事务保存、证据检查、正文更新重排队和指标 | 人工任务重试／回收接口、批量重放、持久化任务操作审计 |
-| 分析 | 模型提取、规则回退、来源记录、三态结果和原文证据；按类别归组 | 无密钥适配器／回退测试、语义归组、标注评测与成本记录 |
+| 分析 | 模型提取、规则回退、来源记录、三态结果和原文证据；`/suggest-groups` MiniLM + 关键词闸 + 双阈值 + top2 分差（T_main 0.35 / T_overlap 0.55 / margin 0.08，锁定于 LLM `pairs_llm.jsonl`，约 82%）；Compose AI 安装 `[grouping]`；hashing 仅供 CI | 无密钥适配器／回退测试、第二人抽查标注、成本记录 |
 | 产品前端 | 五页布局、筛选／详情和模拟复核交互 | 真实接口数据、人工决定与跟进落库 |
 | 期中 Demo | 独立源码构建／数据库、中英文地址、正常／重试／失败场景、启停与检查脚本 | 本阶段不再扩展演示功能 |
 
@@ -80,6 +80,6 @@ R2 语句覆盖率记录为 92%，不是分析准确率。
 ### 4. 下一步
 
 1. 收集有代表性的评论，评估漏检和误判。
-2. 增加适配器／回退模拟测试，评测模型提取并实现语义归组。
+2. 增加适配器／回退模拟测试；可选第二人抽查归组标注；补成本记录。
 3. 产品前端接真实接口，保存人工复核和跟进记录。
 4. 增加人工任务重放及任务操作记录。

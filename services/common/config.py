@@ -24,6 +24,22 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 8.0
     llm_prompt_version: str = "review-extraction-v1"
 
+    # Semantic grouping (sentence embeddings). Not used for /extract-issues.
+    grouping_enabled: bool = True
+    # Dual thresholds: T_main (with keyword overlap) and T_overlap (no-overlap bypass).
+    # Locked on LLM description pairs when available (see data/grouping_eval/EVAL_NOTES.md).
+    grouping_similarity_threshold: float = 0.35  # T_main
+    grouping_keyword_gate: bool = True
+    grouping_overlap_threshold: float = 0.55  # T_overlap (>= T_main)
+    # Ambiguous when best and second-best scores are too close → create_new.
+    grouping_top2_margin: float = 0.08
+    grouping_embedding_backend: Literal[
+        "auto", "sentence_transformers", "hashing", "none"
+    ] = "auto"
+    grouping_embedding_model: str = (
+        "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+    )
+
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
 

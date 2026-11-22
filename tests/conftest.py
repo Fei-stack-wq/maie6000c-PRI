@@ -92,23 +92,44 @@ def new_job(session_factory):
 def ai_response(monkeypatch):
     import httpx
 
+    from services.ai.app.grouping import suggest_group_assignment
     from services.ai.app.main import extract_issues
-    from services.common.schemas import ExtractionRequest
+    from services.common.config import Settings
+    from services.common.schemas import ExtractionRequest, GroupSuggestionRequest
 
     calls = []
 
     class Reply:
-        def __init__(self, payload):
+        def __init__(self, payload, status_code: int = 200):
             self.payload = payload
+            self.status_code = status_code
 
         def raise_for_status(self):
-            return None
+            if self.status_code >= 400:
+                request = httpx.Request("POST", "http://test")
+                response = httpx.Response(self.status_code, request=request)
+                raise httpx.HTTPStatusError("error", request=request, response=response)
 
         def json(self):
             return self.payload
 
     def reply(url, json, timeout=None):
-        calls.append(json)
+        calls.append({"url": str(url), "json": json})
+        path = str(url)
+        if path.rstrip("/").endswith("suggest-groups"):
+            # Hashing is noisier than MiniLM; keep a stricter T_overlap so hard
+            # negatives in unit/integration tests do not false-merge via bypass.
+            suggestion = suggest_group_assignment(
+                GroupSuggestionRequest.model_validate(json),
+                settings=Settings(
+                    grouping_embedding_backend="hashing",
+                    grouping_similarity_threshold=0.35,
+                    grouping_overlap_threshold=0.75,
+                    grouping_top2_margin=0.08,
+                    grouping_keyword_gate=True,
+                ),
+            )
+            return Reply(suggestion.model_dump(mode="json"))
         return Reply(extract_issues(ExtractionRequest(**json)).model_dump(mode="json"))
 
     monkeypatch.setattr(httpx, "post", reply)

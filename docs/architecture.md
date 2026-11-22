@@ -61,9 +61,11 @@ sentence window from the submitted text. English praise/no-problem cues can prod
 other unmatched English usually returns `unknown`. Existing Chinese keyword decisions are retained. The rule
 version is `rule-baseline-2`; these changes do not add general semantic understanding.
 
-Current grouping reuses the earliest active candidate/confirmed group within the same platform,
-shop, product and category. Group creation is protected against concurrent duplicates.
-It does not compare descriptions semantically or call `/suggest-groups`.
+Before saving, the Worker calls `/suggest-groups` to compare the new issue text with active
+`proposed`/`confirmed` groups in the same platform, shop, product and category (Compose deliverable
+uses MiniLM + keyword gate with dual thresholds T_main=0.35 / T_overlap=0.55 and top2 margin 0.08 locked on LLM description pairs; hashing is CI-only). On success it links or creates from
+the similarity hint; on failure it reuses the earliest group in that scope.
+Group creation remains protected against concurrent duplicates.
 
 Rule coverage is limited to selected phrases in four categories. After-sales and warranty complaints
 have no dedicated rules. Chinese and English coverage is not equivalent for every expression.
@@ -127,7 +129,8 @@ They do not change the full-project defaults.
 Current API routes cover batch upload/progress/errors, comments, issues, job status, summary stats,
 health and metrics. Batch upload accepts JSON fields `csv_text` or `comments`; repeated batch requests
 can use the JSON `idempotency_key` field. Direct multipart upload is not implemented.
-AI exposes `/extract-issues`; `/suggest-groups` remains a baseline placeholder.
+AI exposes `/extract-issues` and `/suggest-groups` (semantic similarity within product+category;
+Worker falls back to earliest same-category group if the hint fails).
 
 Planned work: real review samples, model-quality evaluation and semantic grouping; live data in the
 product frontend; persistent human decisions, group merge/split/follow-up actions; manual job replay.
@@ -208,8 +211,9 @@ flowchart LR
 规则路径中的英文匹配兼顾大小写和常见否定，证据从原文按句提取并限制长度。英文好评／无问题表达可能返回 `no`，
 其他未匹配英文通常返回 `unknown`，原中文关键词判断保留。规则版本为 `rule-baseline-2`，不代表通用语义理解。
 
-当前归组复用同平台、店铺、商品和类别下最早的有效候选／已确认问题组，并保护并发建组。
-它没有比较问题描述的语义，也没有调用 `/suggest-groups`。
+Worker 在保存前调用 `/suggest-groups`：在同平台、店铺、商品和类别的
+`proposed`／`confirmed` 候选中按句向量（Compose 交付为 MiniLM + 关键词闸 + 双阈值 T_main 0.35 / T_overlap 0.55 + top2 分差 0.08，锁定于 LLM description 评测集；无模型时 CI 可用 hashing）相似度建议关联或新建；
+调用失败时回退为复用该范围内最早的有效组。并发建组仍受 advisory lock 保护。
 
 当前规则只覆盖四类问题中的部分说法，没有专门的售后、保修规则，中英文也不是逐句等价识别。
 未匹配的中文通常回到 `no`，未匹配的英文通常为 `unknown`；但出现好评表达时，
@@ -264,7 +268,7 @@ Demo 单独将重试等待缩短为 3、6 秒，租约为 60 秒，不修改原�
 
 现有 API 覆盖批次上传／进度／错误、评论、问题组、任务状态、统计、健康检查和指标。
 上传使用 JSON 的 `csv_text` 或 `comments` 字段；重复批次请求可使用 JSON 的 `idempotency_key`。
-直接上传 multipart 文件尚未实现。AI 提供 `/extract-issues`，`/suggest-groups` 仍是基础占位接口。
+直接上传 multipart 文件尚未实现。AI 提供 `/extract-issues` 与语义 `/suggest-groups`（失败时 Worker 回退类别基线）。
 
 后续工作包括真实评论样本、模型质量评测和语义归组，产品前端接真实数据，
 人工决定与问题组合并／拆分／跟进，以及人工任务重放。

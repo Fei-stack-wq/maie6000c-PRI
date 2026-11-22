@@ -9,7 +9,13 @@ from sqlalchemy.orm import Session
 
 from services.common.categories import CATEGORY_VERSION, is_valid_category
 from services.common.models import Comment, CommentRevision, HasIssue
-from services.common.schemas import ExtractedIssue, ExtractionResult
+from services.common.schemas import (
+    ExtractedIssue,
+    ExtractionResult,
+    ExistingIssueRef,
+    GroupSuggestionRequest,
+    GroupSuggestionResult,
+)
 from services.worker.app.policy import CommentNotFound, InvalidAIOutput
 
 
@@ -73,6 +79,32 @@ def call_ai_service(snapshot: AnalysisInput, url: str, timeout: float) -> tuple[
     except ValueError as exc:
         raise InvalidAIOutput("Expected JSON response") from exc
     return raw, max(0, round((perf_counter() - started) * 1000))
+
+
+def call_suggest_groups(
+    *,
+    product_id: str,
+    category_id: str,
+    candidate_text: str,
+    existing_issues: list[ExistingIssueRef],
+    url: str,
+    timeout: float,
+) -> GroupSuggestionResult:
+    """Ask the AI service for a same-product grouping hint. Caller handles transport errors."""
+    payload = GroupSuggestionRequest(
+        product_id=product_id,
+        category_id=category_id,
+        candidate_text=candidate_text,
+        existing_issues=existing_issues,
+        existing_issue_ids=[item.id for item in existing_issues],
+    )
+    response = httpx.post(
+        f"{url.rstrip('/')}/suggest-groups",
+        json=payload.model_dump(mode="json"),
+        timeout=timeout,
+    )
+    response.raise_for_status()
+    return GroupSuggestionResult.model_validate(response.json())
 
 
 def validate_ai_result(raw: object, snapshot: AnalysisInput) -> ExtractionResult:

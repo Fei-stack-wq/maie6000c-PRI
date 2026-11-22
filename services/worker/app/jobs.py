@@ -11,7 +11,13 @@ from services.common.models import (
     AnalysisRun, AnalysisStatus, Comment, CommentIssue, Issue, IssueStatus,
     Job, JobStatus, LinkOrigin, LinkStatus, utcnow,
 )
-from services.worker.app.analysis import AnalysisInput, VerifiedAnalysis, load_analysis_input
+from services.common.schemas import ExistingIssueRef, GroupingAction, GroupSuggestionResult
+from services.worker.app.analysis import (
+    AnalysisInput,
+    VerifiedAnalysis,
+    call_suggest_groups,
+    load_analysis_input,
+)
 from services.worker.app.metrics import JOB_EVENTS
 from services.worker.app.policy import Failure, calculate_retry_delay, should_retry
 from services.worker.app.settings import WorkerSettings
@@ -156,8 +162,122 @@ def _group_lock(db: Session, snapshot: AnalysisInput, category: str) -> None:
         db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
 
 
+def _list_active_issues(
+    db: Session, snapshot: AnalysisInput, category_id: str,
+) -> list[Issue]:
+    return list(db.execute(
+        select(Issue).where(
+            Issue.platform == snapshot.platform, Issue.shop_id == snapshot.shop_id,
+            Issue.product_id == snapshot.product_id,
+            Issue.category_id == category_id,
+            Issue.merged_into_id.is_(None),
+            Issue.status.in_([IssueStatus.PROPOSED.value, IssueStatus.CONFIRMED.value]),
+        ).order_by(Issue.created_at, Issue.id).with_for_update()
+    ).scalars().all())
+
+
+def _category_baseline_pick(candidates: list[Issue]) -> Issue | None:
+    """Reuse the earliest active group in this category (pre-semantic behaviour)."""
+    return candidates[0] if candidates else None
+
+
+def _request_group_suggestion(
+    snapshot: AnalysisInput,
+    category_id: str,
+    candidate_text: str,
+    candidates: list[Issue],
+    ai_service_url: str | None,
+    timeout: float,
+) -> GroupSuggestionResult | None:
+    if not ai_service_url or not candidates:
+        return None
+    refs = [
+        ExistingIssueRef(
+            id=issue.id,
+            title=issue.title or "",
+            description=issue.description or "",
+        )
+        for issue in candidates
+    ]
+    try:
+        return call_suggest_groups(
+            product_id=snapshot.product_id,
+            category_id=category_id,
+            candidate_text=candidate_text,
+            existing_issues=refs,
+            url=ai_service_url,
+            timeout=timeout,
+        )
+    except Exception as exc:  # noqa: BLE001 - grouping hint must not fail the job
+        logger.warning(
+            "suggest_groups_failed",
+            extra={
+                "product_id": snapshot.product_id,
+                "category_id": category_id,
+                "exception_type": type(exc).__name__,
+            },
+        )
+        JOB_EVENTS.labels("suggest_groups_failed").inc()
+        return None
+
+
+def _select_issue_for_extracted(
+    db: Session,
+    snapshot: AnalysisInput,
+    category_id: str,
+    candidate_text: str,
+    ai_service_url: str | None,
+    timeout: float,
+) -> tuple[Issue, float | None]:
+    candidates = _list_active_issues(db, snapshot, category_id)
+    suggestion = _request_group_suggestion(
+        snapshot, category_id, candidate_text, candidates, ai_service_url, timeout,
+    )
+    by_id = {issue.id: issue for issue in candidates}
+
+    if suggestion is not None:
+        if (
+            suggestion.action == GroupingAction.LINK_EXISTING
+            and suggestion.issue_id
+            and suggestion.issue_id in by_id
+        ):
+            return by_id[suggestion.issue_id], suggestion.similarity
+        if suggestion.action == GroupingAction.CREATE_NEW:
+            issue = Issue(
+                platform=snapshot.platform, shop_id=snapshot.shop_id,
+                product_id=snapshot.product_id, category_id=category_id,
+                title=candidate_text[:120], description=candidate_text,
+                status=IssueStatus.PROPOSED.value, created_by="ai",
+            )
+            db.add(issue)
+            db.flush()
+            return issue, suggestion.similarity
+        logger.warning(
+            "suggest_groups_invalid_issue_id",
+            extra={"issue_id": suggestion.issue_id, "category_id": category_id},
+        )
+
+    baseline = _category_baseline_pick(candidates)
+    if baseline is not None:
+        return baseline, None
+    issue = Issue(
+        platform=snapshot.platform, shop_id=snapshot.shop_id,
+        product_id=snapshot.product_id, category_id=category_id,
+        title=candidate_text[:120], description=candidate_text,
+        status=IssueStatus.PROPOSED.value, created_by="ai",
+    )
+    db.add(issue)
+    db.flush()
+    return issue, None
+
+
 def save_issue_links(
-    db: Session, snapshot: AnalysisInput, verified: VerifiedAnalysis, run_id: int,
+    db: Session,
+    snapshot: AnalysisInput,
+    verified: VerifiedAnalysis,
+    run_id: int,
+    ai_service_url: str | None = None,
+    request_timeout_seconds: float = 20.0,
 ) -> None:
     # Sort lock acquisition to avoid cross-category deadlocks between comments.
     for category in sorted({entry.issue.category_id for entry in verified.issues}):
@@ -166,25 +286,11 @@ def save_issue_links(
     seen = set()
     for entry in verified.issues:
         extracted = entry.issue
-        # This is the existing category baseline, not semantic grouping. R3 replaces the selector.
-        issue = db.execute(
-            select(Issue).where(
-                Issue.platform == snapshot.platform, Issue.shop_id == snapshot.shop_id,
-                Issue.product_id == snapshot.product_id,
-                Issue.category_id == extracted.category_id,
-                Issue.merged_into_id.is_(None),
-                Issue.status.in_([IssueStatus.PROPOSED.value, IssueStatus.CONFIRMED.value]),
-            ).order_by(Issue.created_at, Issue.id).with_for_update().limit(1)
-        ).scalar_one_or_none()
-        if issue is None:
-            issue = Issue(
-                platform=snapshot.platform, shop_id=snapshot.shop_id,
-                product_id=snapshot.product_id, category_id=extracted.category_id,
-                title=extracted.description[:120], description=extracted.description,
-                status=IssueStatus.PROPOSED.value, created_by="ai",
-            )
-            db.add(issue)
-            db.flush()
+        candidate_text = extracted.description or extracted.evidence_text
+        issue, similarity = _select_issue_for_extracted(
+            db, snapshot, extracted.category_id, candidate_text,
+            ai_service_url, request_timeout_seconds,
+        )
         if issue.id in seen:
             continue
         seen.add(issue.id)
@@ -208,6 +314,7 @@ def save_issue_links(
         link.evidence_start = entry.start
         link.evidence_end = entry.end
         link.evidence_verified = True
+        link.similarity = similarity
         link.analysis_run_id = run_id
         link.comment_version = snapshot.comment_version
         link.superseded_at = None
@@ -217,6 +324,8 @@ def save_issue_links(
 def complete_job(
     db: Session, claim: JobClaim, snapshot: AnalysisInput,
     verified: VerifiedAnalysis, latency_ms: int, now: datetime | None = None,
+    ai_service_url: str | None = None,
+    request_timeout_seconds: float = 20.0,
 ) -> str:
     job = lock_owned_job(db, claim, now or utcnow())
     if job is None:
@@ -229,7 +338,11 @@ def complete_job(
         db.commit()
         return "input_changed"
     run = _record_run(db, claim, snapshot, "succeeded", latency_ms, verified)
-    save_issue_links(db, snapshot, verified, run.id)
+    save_issue_links(
+        db, snapshot, verified, run.id,
+        ai_service_url=ai_service_url,
+        request_timeout_seconds=request_timeout_seconds,
+    )
     comment.analysis_status = AnalysisStatus.ANALYZED.value
     comment.has_issue = verified.has_issue
     comment.current_analysis_run_id = run.id

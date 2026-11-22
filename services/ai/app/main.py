@@ -12,10 +12,12 @@ import logging
 import re
 from time import perf_counter
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, HTTPException, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 from services.ai.app.english import find_issue, no_issue_verdict
+from services.ai.app.grouping import EmbedderUnavailable, suggest_group_assignment
+from services.ai.app.llm import LlmError, call_llm_extraction
 from services.common.categories import CATEGORY_VERSION, CATEGORIES
 from services.common.config import configure_logging, get_settings
 from services.common.schemas import (
@@ -25,10 +27,7 @@ from services.common.schemas import (
     GroupSuggestionRequest,
     GroupSuggestionResult,
     HealthResponse,
-    GroupingAction,
 )
-
-from services.ai.app.llm import LlmError, call_llm_extraction
 
 
 configure_logging()
@@ -181,16 +180,12 @@ def extract(payload: ExtractionRequest) -> ExtractionResult:
 
 @app.post("/suggest-groups", response_model=GroupSuggestionResult)
 def suggest_groups(payload: GroupSuggestionRequest) -> GroupSuggestionResult:
-    """Baseline grouping hint: link the first existing issue, else create new."""
-    if payload.existing_issue_ids:
-        return GroupSuggestionResult(
-            action=GroupingAction.LINK_EXISTING,
-            issue_id=payload.existing_issue_ids[0],
-            similar_issue_ids=payload.existing_issue_ids[:3],
-            similarity=0.5,
-            rationale="rule baseline: reuse the first issue of the same category",
-        )
-    return GroupSuggestionResult(
-        action=GroupingAction.CREATE_NEW,
-        rationale="rule baseline: no existing issue in this category",
-    )
+    """Semantic grouping hint within one product + category; Worker applies it."""
+    settings = get_settings()
+    if not settings.grouping_enabled:
+        raise HTTPException(status_code=503, detail="semantic_grouping_disabled")
+    try:
+        return suggest_group_assignment(payload, settings=settings)
+    except EmbedderUnavailable as exc:
+        logger.warning("grouping_embedder_unavailable", extra={"detail": str(exc)[:200]})
+        raise HTTPException(status_code=503, detail="embedding_unavailable") from exc
