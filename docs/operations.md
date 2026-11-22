@@ -142,14 +142,18 @@ GROUPING_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L1
 ```
 
 Deliverable Compose builds the **ai** service with `INSTALL_GROUPING=1` (MiniLM).
-api/worker stay on the slim image. Dual thresholds **T_main=0.35 / T_overlap=0.55** plus
-**top2_margin=0.08** were locked on 2026-11-22 against **LLM description** pairs
-(`pairs_llm.jsonl`, accuracy ≈0.82); handwritten `pairs.jsonl` is smoke only (see
-`EVAL_NOTES.md`). Re-score with:
+api/worker stay on the slim image. Dual thresholds **T_main=0.35 / T_high=0.55**
+(`GROUPING_OVERLAP_THRESHOLD` = T_high bypass) plus **top2_margin=0.08** were locked on
+2026-11-22 on `pairs_calib.jsonl` (≈0.84) **without** synonym alias clusters; held-out
+`pairs_test.jsonl` ≈0.77. Handwritten `pairs.jsonl` is smoke only (see `EVAL_NOTES.md`). Re-score with:
 
 ```powershell
-python -m scripts.eval_grouping --backend sentence_transformers --pairs data/grouping_eval/pairs_llm.jsonl
+python -m scripts.eval_grouping --backend sentence_transformers --pairs data/grouping_eval/pairs_calib.jsonl
+python -m scripts.eval_grouping --backend sentence_transformers --pairs data/grouping_eval/pairs_test.jsonl --fixed-t-main 0.35 --fixed-t-overlap 0.55 --fixed-top2-margin 0.08
 ```
+
+Worker records `/suggest-groups` latency in Prometheus as `worker_grouping_request_seconds`
+and attaches `grouping_hints` (including fallback reasons) on `AnalysisRun.output_json`.
 
 Hashing remains only for offline/CI unit tests without model weights — not the deliverable path.
 Full-stack acceptance (extract + semantic grouping):
@@ -334,13 +338,17 @@ GROUPING_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L1
 ```
 
 交付 Compose 仅为 **ai** 服务设置 `INSTALL_GROUPING=1`（MiniLM）；api／worker 保持瘦镜像。
-双阈值 **T_main=0.35 / T_overlap=0.55** 与 **top2_margin=0.08** 于 2026-11-22 在真实 LLM
-description 评测集 `pairs_llm.jsonl` 上锁定（accuracy ≈0.82）；手写 `pairs.jsonl` 仅冒烟
-（见 `data/grouping_eval/EVAL_NOTES.md`）。重测：
+双阈值 **T_main=0.35 / T_high=0.55**（`GROUPING_OVERLAP_THRESHOLD` 即无关键词旁路阈值）与
+**top2_margin=0.08** 于 2026-11-22 在校准集 `pairs_calib.jsonl` 上锁定（≈0.84，**无**同义别名簇），
+held-out `pairs_test.jsonl` ≈0.77。手写 `pairs.jsonl` 仅冒烟（见 `EVAL_NOTES.md`）。重测：
 
 ```powershell
-python -m scripts.eval_grouping --backend sentence_transformers --pairs data/grouping_eval/pairs_llm.jsonl
+python -m scripts.eval_grouping --backend sentence_transformers --pairs data/grouping_eval/pairs_calib.jsonl
+python -m scripts.eval_grouping --backend sentence_transformers --pairs data/grouping_eval/pairs_test.jsonl --fixed-t-main 0.35 --fixed-t-overlap 0.55 --fixed-top2-margin 0.08
 ```
+
+Worker 将 `/suggest-groups` 耗时记入 `worker_grouping_request_seconds`，并在
+`AnalysisRun.output_json.grouping_hints` 写入回退原因。
 
 hashing 仅用于无模型权重的本机／CI 单测，不算交付语义路径。全栈验收（提取 + 语义归组）：
 

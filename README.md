@@ -35,7 +35,7 @@ The current working path is:
 | --- | --- |
 | R1: ingestion and queries | CSV text / JSON input, row validation, deduplication, revisions, jobs and read APIs are implemented |
 | R2: background processing | Claiming, bounded retries, expired-job recovery, protected writes, evidence checks and metrics are implemented |
-| R3: analysis | Model extraction, rule fallback, source tracking and MiniLM `/suggest-groups` + keyword gate + dual thresholds + top2 margin (T_main 0.35 / T_overlap 0.55 / 0.08 on LLM `pairs_llm.jsonl`, ~82% accuracy) are implemented; Compose AI installs `[grouping]`; cost records remain |
+| R3: analysis | Model extraction, rule fallback, source tracking and MiniLM `/suggest-groups` + keyword gate + dual thresholds + top2 margin (T_main 0.35 / T_high 0.55 / 0.08 locked on `pairs_calib.jsonl` ≈84%; held-out `pairs_test.jsonl` ≈77%; no synonym cheat-sheet) are implemented; Compose AI installs `[grouping]`; grouping latency/fallback hints recorded; LLM cost records remain |
 | R4: product frontend | The original five-page interface uses mock data; live data and review-action APIs remain |
 | Midterm demo | A separate Chinese/English page calls the existing backend and demonstrates persisted results and retry behaviour |
 
@@ -107,7 +107,7 @@ docker compose -f compose.midterm.yaml up --build -d --wait
 ### 项目与当前范围
 
 我们正在开发一个商品评论整理工具：集中接收评论，提取具体问题和原文证据，
-建立候选问题组，供工作人员复核。完整产品计划加入语义归组和人工复核、跟进功能，
+建立候选问题组，供工作人员复核。语义归组建议已接入；完整产品仍需人工复核与跟进写入，
 这些内容仍在开发中。
 
 当前已经接通的流程是：
@@ -118,7 +118,7 @@ docker compose -f compose.midterm.yaml up --build -d --wait
 | --- | --- |
 | R1 数据接入与查询 | 已实现 CSV 文本／JSON 输入、逐行校验、去重、版本记录、建任务和查询接口 |
 | R2 后台处理 | 已实现任务领取、有限重试、过期回收、受保护的结果保存、证据检查和指标 |
-| R3 分析 | 已接入模型提取、规则回退、来源记录与 MiniLM `/suggest-groups` + 关键词闸 + 双阈值 + top2 分差（T_main 0.35 / T_overlap 0.55 / 0.08，锁定于 LLM `pairs_llm.jsonl`，约 82%）；Compose AI 安装 `[grouping]`；成本记录待完成 |
+| R3 分析 | 已接入模型提取、规则回退、来源记录与 MiniLM `/suggest-groups` + 关键词闸 + 双阈值 + top2 分差（T_main 0.35 / T_high 0.55 / 0.08，校准集约 84%，held-out 约 77%；无同义别名小抄）；Compose AI 安装 `[grouping]`；已记录归组耗时与回退 hint；LLM 成本记录待完成 |
 | R4 产品前端 | 原五页界面使用模拟数据；真实数据接入和复核动作接口待完成 |
 | 期中 Demo | 独立中英文页面连接现有后台，展示结果保存与失败重试 |
 

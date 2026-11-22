@@ -21,7 +21,8 @@ from services.common.config import Settings
 from services.common.schemas import ExistingIssueRef, GroupingAction, GroupSuggestionRequest
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PAIRS = ROOT / "data" / "grouping_eval" / "pairs_llm.jsonl"
+# Default to held-out test for final scoring; use pairs_calib.jsonl for retuning.
+DEFAULT_PAIRS = ROOT / "data" / "grouping_eval" / "pairs_test.jsonl"
 DEFAULT_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
 
 

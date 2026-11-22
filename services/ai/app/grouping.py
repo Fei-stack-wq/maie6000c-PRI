@@ -43,7 +43,6 @@ _WEAK_HUBS = frozenset({
     "quality", "issue", "product", "colour", "color", "size", "delivery",
 })
 
-
 class EmbedderUnavailable(Exception):
     """No embedding backend is configured or loadable."""
 
@@ -121,7 +120,7 @@ def _issue_compare_text(issue: ExistingIssueRef) -> str:
 
 
 def _keyword_overlap(candidate: str, issue_text: str) -> list[str]:
-    """Substantive shared tokens (stopwords + weak hubs removed)."""
+    """Substantive shared tokens (stopwords + weak hubs removed). No synonym cheat-sheet."""
     return sorted(_substantive_tokens(candidate) & _substantive_tokens(issue_text))
 
 
@@ -211,7 +210,7 @@ def suggest_group_assignment(
 ) -> GroupSuggestionResult:
     settings = settings or get_settings()
     t_main = settings.grouping_similarity_threshold
-    t_overlap = settings.grouping_overlap_threshold
+    t_high = settings.grouping_overlap_threshold  # env GROUPING_OVERLAP_THRESHOLD
     issues = list(payload.existing_issues)
     if not issues:
         return GroupSuggestionResult(
@@ -267,12 +266,12 @@ def suggest_group_assignment(
             )
 
     gate_on = settings.grouping_keyword_gate
-    allow_link = (not gate_on) or bool(overlap) or best_score >= t_overlap
+    allow_link = (not gate_on) or bool(overlap) or best_score >= t_high
     if allow_link:
         overlap_note = f"; shared tokens: {', '.join(overlap[:5])}" if overlap else ""
         conf_note = ""
-        if gate_on and not overlap and best_score >= t_overlap:
-            conf_note = f"; keyword gate bypass at T_overlap >={t_overlap:.2f}"
+        if gate_on and not overlap and best_score >= t_high:
+            conf_note = f"; keyword gate bypass at T_high >={t_high:.2f}"
         return GroupSuggestionResult(
             action=GroupingAction.LINK_EXISTING,
             issue_id=best_issue.id,
@@ -290,6 +289,6 @@ def suggest_group_assignment(
         similarity=round(best_score, 4),
         rationale=(
             f"keyword gate: score {best_score:.4f} >= T_main {t_main} but no "
-            f"substantive token overlap and below T_overlap {t_overlap:.2f}"
+            f"substantive token overlap and below T_high {t_high:.2f}"
         )[:300],
     )

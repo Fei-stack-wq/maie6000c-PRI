@@ -7,7 +7,8 @@
 The target product helps staff review recurring issues in product comments. We keep source text
 and evidence separate from suggestions. Only staff should confirm an issue or record a resolution.
 The current milestone covers ingestion, background analysis, persistence and a small demo page.
-Semantic grouping and the complete human-review workflow remain planned work.
+R3 semantic grouping hints (`/suggest-groups`, MiniLM) are implemented; the complete human-review
+workflow (accept/reject APIs and live product frontend) remains planned work.
 
 ### 2. Components and current data flow
 
@@ -63,7 +64,7 @@ version is `rule-baseline-2`; these changes do not add general semantic understa
 
 Before saving, the Worker calls `/suggest-groups` to compare the new issue text with active
 `proposed`/`confirmed` groups in the same platform, shop, product and category (Compose deliverable
-uses MiniLM + keyword gate with dual thresholds T_main=0.35 / T_overlap=0.55 and top2 margin 0.08 locked on LLM description pairs; hashing is CI-only). On success it links or creates from
+uses MiniLM + keyword gate with dual thresholds T_main=0.35 / T_high=0.55 and top2 margin 0.08 locked on calib pairs; hashing is CI-only). On success it links or creates from
 the similarity hint; on failure it reuses the earliest group in that scope.
 Group creation remains protected against concurrent duplicates.
 
@@ -132,7 +133,7 @@ can use the JSON `idempotency_key` field. Direct multipart upload is not impleme
 AI exposes `/extract-issues` and `/suggest-groups` (semantic similarity within product+category;
 Worker falls back to earliest same-category group if the hint fails).
 
-Planned work: real review samples, model-quality evaluation and semantic grouping; live data in the
+Planned work: broader labelled extraction evaluation; live data in the
 product frontend; persistent human decisions, group merge/split/follow-up actions; manual job replay.
 The original [target workflow image](assets/fig1_end_to_end_flow.png) remains a design reference,
 not a diagram of completed features. R2 details are in [r2-implementation.md](r2-implementation.md).
@@ -160,7 +161,7 @@ not a diagram of completed features. R2 details are in [r2-implementation.md](r2
 
 完整产品用于帮助工作人员检查商品评论中的重复问题。原文及证据与分析建议分开保存，
 问题确认和处理完成应由人工决定。当前里程碑覆盖导入、后台分析、结果保存和小型演示页面。
-语义归组和完整人工复核流程仍是后续工作。
+R3 语义归组建议（`/suggest-groups`，MiniLM）已实现；完整人工复核流程（accept/reject 接口与产品前端真数据）仍是后续工作。
 
 ### 2. 组件与当前数据流
 
@@ -212,7 +213,7 @@ flowchart LR
 其他未匹配英文通常返回 `unknown`，原中文关键词判断保留。规则版本为 `rule-baseline-2`，不代表通用语义理解。
 
 Worker 在保存前调用 `/suggest-groups`：在同平台、店铺、商品和类别的
-`proposed`／`confirmed` 候选中按句向量（Compose 交付为 MiniLM + 关键词闸 + 双阈值 T_main 0.35 / T_overlap 0.55 + top2 分差 0.08，锁定于 LLM description 评测集；无模型时 CI 可用 hashing）相似度建议关联或新建；
+`proposed`／`confirmed` 候选中按句向量（Compose 交付为 MiniLM + 关键词闸 + 双阈值 T_main 0.35 / T_high 0.55 + top2 分差 0.08，锁定于校准集；无模型时 CI 可用 hashing）相似度建议关联或新建；
 调用失败时回退为复用该范围内最早的有效组。并发建组仍受 advisory lock 保护。
 
 当前规则只覆盖四类问题中的部分说法，没有专门的售后、保修规则，中英文也不是逐句等价识别。
@@ -270,7 +271,7 @@ Demo 单独将重试等待缩短为 3、6 秒，租约为 60 秒，不修改原�
 上传使用 JSON 的 `csv_text` 或 `comments` 字段；重复批次请求可使用 JSON 的 `idempotency_key`。
 直接上传 multipart 文件尚未实现。AI 提供 `/extract-issues` 与语义 `/suggest-groups`（失败时 Worker 回退类别基线）。
 
-后续工作包括真实评论样本、模型质量评测和语义归组，产品前端接真实数据，
+后续工作包括真实评论样本与更广提取质量评测，产品前端接真实数据，
 人工决定与问题组合并／拆分／跟进，以及人工任务重放。
 原[目标流程图](assets/fig1_end_to_end_flow.png) 保留作设计参考，不表示全部功能已完成。
 R2 细节见 [r2-implementation.md](r2-implementation.md)。

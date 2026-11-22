@@ -251,7 +251,7 @@ def test_keyword_gate_high_confidence_bypass_without_overlap():
         ),
     )
     assert result.action == GroupingAction.LINK_EXISTING
-    assert "t_overlap" in (result.rationale or "").lower()
+    assert "t_high" in (result.rationale or "").lower()
 
 
 def test_normalize_is_language_general_only():

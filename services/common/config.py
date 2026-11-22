@@ -26,11 +26,11 @@ class Settings(BaseSettings):
 
     # Semantic grouping (sentence embeddings). Not used for /extract-issues.
     grouping_enabled: bool = True
-    # Dual thresholds: T_main (with keyword overlap) and T_overlap (no-overlap bypass).
-    # Locked on LLM description pairs when available (see data/grouping_eval/EVAL_NOTES.md).
+    # Dual thresholds: T_main (link if keyword overlap) and T_high (no-overlap bypass).
+    # Env still uses GROUPING_OVERLAP_THRESHOLD for T_high (see EVAL_NOTES.md).
     grouping_similarity_threshold: float = 0.35  # T_main
     grouping_keyword_gate: bool = True
-    grouping_overlap_threshold: float = 0.55  # T_overlap (>= T_main)
+    grouping_overlap_threshold: float = 0.55  # T_high (>= T_main); no-keyword bypass
     # Ambiguous when best and second-best scores are too close → create_new.
     grouping_top2_margin: float = 0.08
     grouping_embedding_backend: Literal[

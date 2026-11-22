@@ -77,7 +77,8 @@ def api():
     base = _base_url()
     if not base:
         pytest.skip("SMOKE_BASE_URL not set")
-    with httpx.Client(base_url=base) as client:
+    # trust_env=False: Windows system proxy (e.g. 127.0.0.1:7897) otherwise 502s local Compose.
+    with httpx.Client(base_url=base, trust_env=False) as client:
         live = client.get("/health/live", timeout=10)
         assert live.status_code == 200
         yield client
@@ -103,6 +104,7 @@ def test_ai_uses_sentence_transformers_not_hashing():
             ],
         },
         timeout=60,
+        trust_env=False,
     )
     assert response.status_code == 200, response.text
     body = response.json()

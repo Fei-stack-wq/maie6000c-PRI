@@ -41,9 +41,18 @@ try {
     Write-Host "Running grouping smoke tests against $BaseUrl ..."
     $env:SMOKE_BASE_URL = $BaseUrl
     $env:SMOKE_AI_URL = $AiUrl
-    $env:GROUPING_SIMILARITY_THRESHOLD = "0.45"
+    $env:GROUPING_SIMILARITY_THRESHOLD = "0.35"
+    # Bypass Windows/system HTTP proxies (e.g. Clash on :7897) for local Compose ports.
+    $env:NO_PROXY = "localhost,127.0.0.1,::1"
+    $env:no_proxy = $env:NO_PROXY
+    $env:HTTP_PROXY = ""
+    $env:HTTPS_PROXY = ""
+    $env:ALL_PROXY = ""
+    $env:http_proxy = ""
+    $env:https_proxy = ""
+    $env:all_proxy = ""
     Invoke-Checked {
-        uv run python -m pytest -q tests/smoke/test_grouping_flow.py
+        .\.venv\Scripts\python.exe -m pytest -q tests/smoke/test_grouping_flow.py
     } "grouping smoke pytest"
 
     Write-Host "Grouping e2e passed (extract + semantic grouping)."

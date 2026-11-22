@@ -1,11 +1,14 @@
 """Transactional task lifecycle. Every final write is fenced by its original claim."""
 import hashlib
 import logging
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from sqlalchemy import and_, or_, select, text, update
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from services.common.models import (
     AnalysisRun, AnalysisStatus, Comment, CommentIssue, Issue, IssueStatus,
@@ -18,7 +21,7 @@ from services.worker.app.analysis import (
     call_suggest_groups,
     load_analysis_input,
 )
-from services.worker.app.metrics import JOB_EVENTS
+from services.worker.app.metrics import GROUPING_LATENCY, JOB_EVENTS
 from services.worker.app.policy import Failure, calculate_retry_delay, should_retry
 from services.worker.app.settings import WorkerSettings
 
@@ -138,6 +141,18 @@ def _record_run(
     return run
 
 
+def _attach_grouping_hints(db: Session, run_id: int, hints: list[dict[str, Any]]) -> None:
+    if not hints:
+        return
+    run = db.get(AnalysisRun, run_id)
+    if run is None:
+        return
+    output = dict(run.output_json or {})
+    output["grouping_hints"] = hints
+    run.output_json = output
+    flag_modified(run, "output_json")
+
+
 def _requeue_changed_input(db: Session, job: Job, comment: Comment) -> None:
     # A different input deserves its own retry budget. The cleared claim fences the old input.
     job.status = JobStatus.PENDING.value
@@ -162,18 +177,32 @@ def _group_lock(db: Session, snapshot: AnalysisInput, category: str) -> None:
         db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
 
 
-def _list_active_issues(
-    db: Session, snapshot: AnalysisInput, category_id: str,
-) -> list[Issue]:
-    return list(db.execute(
-        select(Issue).where(
+def _active_issues_select(snapshot: AnalysisInput, category_id: str):
+    return (
+        select(Issue)
+        .where(
             Issue.platform == snapshot.platform, Issue.shop_id == snapshot.shop_id,
             Issue.product_id == snapshot.product_id,
             Issue.category_id == category_id,
             Issue.merged_into_id.is_(None),
             Issue.status.in_([IssueStatus.PROPOSED.value, IssueStatus.CONFIRMED.value]),
-        ).order_by(Issue.created_at, Issue.id).with_for_update()
-    ).scalars().all())
+        )
+        .order_by(Issue.created_at, Issue.id)
+    )
+
+
+def _list_active_issues_readonly(
+    db: Session, snapshot: AnalysisInput, category_id: str,
+) -> list[Issue]:
+    return list(db.execute(_active_issues_select(snapshot, category_id)).scalars().all())
+
+
+def _list_active_issues_locked(
+    db: Session, snapshot: AnalysisInput, category_id: str,
+) -> list[Issue]:
+    return list(
+        db.execute(_active_issues_select(snapshot, category_id).with_for_update()).scalars().all()
+    )
 
 
 def _category_baseline_pick(candidates: list[Issue]) -> Issue | None:
@@ -188,9 +217,10 @@ def _request_group_suggestion(
     candidates: list[Issue],
     ai_service_url: str | None,
     timeout: float,
-) -> GroupSuggestionResult | None:
+) -> tuple[GroupSuggestionResult | None, float, str | None]:
     if not ai_service_url or not candidates:
-        return None
+        reason = "no_ai_url" if not ai_service_url else "no_candidates"
+        return None, 0.0, reason
     refs = [
         ExistingIssueRef(
             id=issue.id,
@@ -199,8 +229,9 @@ def _request_group_suggestion(
         )
         for issue in candidates
     ]
+    started = time.perf_counter()
     try:
-        return call_suggest_groups(
+        result = call_suggest_groups(
             product_id=snapshot.product_id,
             category_id=category_id,
             candidate_text=candidate_text,
@@ -208,17 +239,58 @@ def _request_group_suggestion(
             url=ai_service_url,
             timeout=timeout,
         )
+        elapsed = time.perf_counter() - started
+        GROUPING_LATENCY.observe(elapsed)
+        return result, elapsed, None
     except Exception as exc:  # noqa: BLE001 - grouping hint must not fail the job
+        elapsed = time.perf_counter() - started
+        GROUPING_LATENCY.observe(elapsed)
+        reason = type(exc).__name__
         logger.warning(
             "suggest_groups_failed",
             extra={
                 "product_id": snapshot.product_id,
                 "category_id": category_id,
-                "exception_type": type(exc).__name__,
+                "exception_type": reason,
             },
         )
         JOB_EVENTS.labels("suggest_groups_failed").inc()
-        return None
+        return None, elapsed, reason
+
+
+def _new_proposed_issue(
+    db: Session, snapshot: AnalysisInput, category_id: str, candidate_text: str,
+) -> Issue:
+    issue = Issue(
+        platform=snapshot.platform, shop_id=snapshot.shop_id,
+        product_id=snapshot.product_id, category_id=category_id,
+        title=candidate_text[:120], description=candidate_text,
+        status=IssueStatus.PROPOSED.value, created_by="ai",
+    )
+    db.add(issue)
+    db.flush()
+    return issue
+
+
+def _grouping_hint_record(
+    *,
+    category_id: str,
+    action: str,
+    issue_id: str | None,
+    similarity: float | None,
+    fallback: str | None,
+    latency_s: float,
+    candidate_count: int,
+) -> dict[str, Any]:
+    return {
+        "category_id": category_id,
+        "action": action,
+        "issue_id": issue_id,
+        "similarity": similarity,
+        "fallback": fallback,
+        "latency_s": round(latency_s, 4),
+        "candidate_count": candidate_count,
+    }
 
 
 def _select_issue_for_extracted(
@@ -228,11 +300,14 @@ def _select_issue_for_extracted(
     candidate_text: str,
     ai_service_url: str | None,
     timeout: float,
-) -> tuple[Issue, float | None]:
-    candidates = _list_active_issues(db, snapshot, category_id)
-    suggestion = _request_group_suggestion(
-        snapshot, category_id, candidate_text, candidates, ai_service_url, timeout,
+) -> tuple[Issue, float | None, dict[str, Any]]:
+    readonly = _list_active_issues_readonly(db, snapshot, category_id)
+    suggestion, latency_s, fail_reason = _request_group_suggestion(
+        snapshot, category_id, candidate_text, readonly, ai_service_url, timeout,
     )
+
+    _group_lock(db, snapshot, category_id)
+    candidates = _list_active_issues_locked(db, snapshot, category_id)
     by_id = {issue.id: issue for issue in candidates}
 
     if suggestion is not None:
@@ -241,34 +316,59 @@ def _select_issue_for_extracted(
             and suggestion.issue_id
             and suggestion.issue_id in by_id
         ):
-            return by_id[suggestion.issue_id], suggestion.similarity
-        if suggestion.action == GroupingAction.CREATE_NEW:
-            issue = Issue(
-                platform=snapshot.platform, shop_id=snapshot.shop_id,
-                product_id=snapshot.product_id, category_id=category_id,
-                title=candidate_text[:120], description=candidate_text,
-                status=IssueStatus.PROPOSED.value, created_by="ai",
+            hint = _grouping_hint_record(
+                category_id=category_id,
+                action="link_existing",
+                issue_id=suggestion.issue_id,
+                similarity=suggestion.similarity,
+                fallback=None,
+                latency_s=latency_s,
+                candidate_count=len(readonly),
             )
-            db.add(issue)
-            db.flush()
-            return issue, suggestion.similarity
-        logger.warning(
-            "suggest_groups_invalid_issue_id",
-            extra={"issue_id": suggestion.issue_id, "category_id": category_id},
-        )
+            return by_id[suggestion.issue_id], suggestion.similarity, hint
+        if suggestion.action == GroupingAction.CREATE_NEW:
+            issue = _new_proposed_issue(db, snapshot, category_id, candidate_text)
+            hint = _grouping_hint_record(
+                category_id=category_id,
+                action="create_new",
+                issue_id=issue.id,
+                similarity=suggestion.similarity,
+                fallback=None,
+                latency_s=latency_s,
+                candidate_count=len(readonly),
+            )
+            return issue, suggestion.similarity, hint
+        if suggestion.action == GroupingAction.LINK_EXISTING and suggestion.issue_id:
+            logger.warning(
+                "suggest_groups_invalid_issue_id",
+                extra={"issue_id": suggestion.issue_id, "category_id": category_id},
+            )
+            fail_reason = fail_reason or "stale_issue_id"
 
     baseline = _category_baseline_pick(candidates)
     if baseline is not None:
-        return baseline, None
-    issue = Issue(
-        platform=snapshot.platform, shop_id=snapshot.shop_id,
-        product_id=snapshot.product_id, category_id=category_id,
-        title=candidate_text[:120], description=candidate_text,
-        status=IssueStatus.PROPOSED.value, created_by="ai",
+        hint = _grouping_hint_record(
+            category_id=category_id,
+            action="category_baseline",
+            issue_id=baseline.id,
+            similarity=None,
+            fallback=fail_reason or "suggest_unusable",
+            latency_s=latency_s,
+            candidate_count=len(readonly),
+        )
+        return baseline, None, hint
+
+    issue = _new_proposed_issue(db, snapshot, category_id, candidate_text)
+    hint = _grouping_hint_record(
+        category_id=category_id,
+        action="create_new",
+        issue_id=issue.id,
+        similarity=None,
+        fallback=fail_reason or "no_baseline",
+        latency_s=latency_s,
+        candidate_count=len(readonly),
     )
-    db.add(issue)
-    db.flush()
-    return issue, None
+    return issue, None, hint
 
 
 def save_issue_links(
@@ -279,18 +379,17 @@ def save_issue_links(
     ai_service_url: str | None = None,
     request_timeout_seconds: float = 20.0,
 ) -> None:
-    # Sort lock acquisition to avoid cross-category deadlocks between comments.
-    for category in sorted({entry.issue.category_id for entry in verified.issues}):
-        _group_lock(db, snapshot, category)
     _supersede_suggestions(db, snapshot.comment_id)
+    grouping_hints: list[dict[str, Any]] = []
     seen = set()
-    for entry in verified.issues:
+    for entry in sorted(verified.issues, key=lambda v: v.issue.category_id):
         extracted = entry.issue
         candidate_text = extracted.description or extracted.evidence_text
-        issue, similarity = _select_issue_for_extracted(
+        issue, similarity, hint = _select_issue_for_extracted(
             db, snapshot, extracted.category_id, candidate_text,
             ai_service_url, request_timeout_seconds,
         )
+        grouping_hints.append(hint)
         if issue.id in seen:
             continue
         seen.add(issue.id)
@@ -319,6 +418,7 @@ def save_issue_links(
         link.comment_version = snapshot.comment_version
         link.superseded_at = None
         db.flush()
+    _attach_grouping_hints(db, run_id, grouping_hints)
 
 
 def complete_job(
