@@ -38,7 +38,7 @@ keep an existing `.env` if it contains your settings.
 | Address | Use |
 | --- | --- |
 | `http://localhost:8000/docs` | Submit real batches and query the backend |
-| `http://localhost:8000/ui/` | Original frontend; its business data is mock data |
+| `http://localhost:8000/ui/` | Live product UI: CSV upload, progress, comments and issue evidence |
 | `http://localhost:8100/docs` | Model/rule analysis API |
 | `http://localhost:9090` | Prometheus after `docker compose --profile observability up -d` |
 
@@ -74,7 +74,7 @@ docker compose -f compose.midterm.yaml exec midterm-demo python -c "import urlli
 
 A retryable failure returns the job to `pending` and the comment to `queued`, with a next-run time.
 Final failures remain `failed`. The demo shows failures directly; the original project exposes them
-through query APIs, while its mock frontend does not yet show live failures.
+through query APIs and the live frontend.
 Every worker poll checks for expired claims and requeues or finally fails them according to the limit.
 The same recovery can be invoked in the original stack:
 
@@ -210,7 +210,7 @@ Windows 也可使用 `Copy-Item .env.example .env`。只在首次准备时复制
 | 地址 | 用途 |
 | --- | --- |
 | `http://localhost:8000/docs` | 提交真实批次、查询后台 |
-| `http://localhost:8000/ui/` | 原前端，业务数据仍为模拟数据 |
+| `http://localhost:8000/ui/` | 产品前端：CSV 上传、进度、评论和问题证据 |
 | `http://localhost:8100/docs` | 模型／规则分析 API |
 | `http://localhost:9090` | 执行 `docker compose --profile observability up -d` 后的 Prometheus |
 
@@ -244,7 +244,7 @@ docker compose -f compose.midterm.yaml exec midterm-demo python -c "import urlli
 ### 4. 失败与回收
 
 可重试失败将任务放回 `pending`、评论放回 `queued`，并设置下次执行时间；最终失败保持 `failed`。
-小 Demo 直接展示失败；原项目可通过查询接口查看，模拟前端尚不能展示实时失败。
+小 Demo 直接展示失败；产品前端通过真实查询接口展示批次与评论的失败状态。
 Worker 每轮检查过期领取，根据剩余次数重新排队或最终失败。原项目也可以手动调用同一回收逻辑：
 
 ```bash

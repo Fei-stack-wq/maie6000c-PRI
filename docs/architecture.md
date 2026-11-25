@@ -6,7 +6,7 @@
 
 The target product helps staff review recurring issues in product comments. We keep source text
 and evidence separate from suggestions. Only staff should confirm an issue or record a resolution.
-The current milestone covers ingestion, background analysis, persistence and a small demo page.
+The current implementation covers ingestion, background analysis, persistence, the live product UI and a separate midterm demo.
 Semantic grouping and the complete human-review workflow remain planned work.
 
 ### 2. Components and current data flow
@@ -21,7 +21,7 @@ flowchart LR
     Proxy --> AI[AI service: model or rules]
     DB --> Presenter
     Presenter --> Page
-    Original[Original frontend: mock data]
+    Original[Product frontend: live API] --> API
 ```
 
 The demo controller starts the existing API, AI and Worker as child processes. It converts the
@@ -30,7 +30,7 @@ The proxy adds a three-second delay and optional HTTP 503 responses. It does not
 or result-saving logic. The standalone Compose runs the controller and its own PostgreSQL service.
 
 In the full project, `compose.yaml` runs API, Worker, AI and PostgreSQL separately, with optional
-Prometheus. The original frontend is served by the API at `/ui/` but still uses mock data.
+Prometheus. The product frontend is served at `/ui/` and calls the same-origin API. The original mock preview is retained at `/ui/mock.html`.
 
 | Component | Responsibility | Code |
 | --- | --- | --- |
@@ -39,7 +39,7 @@ Prometheus. The original frontend is served by the API at `/ui/` but still uses 
 | Analysis | Extract issues with a model or Chinese/English rules and source evidence | `services/ai/app/` |
 | Shared data | Models and request/response definitions | `services/common/` |
 | Midterm interface | Demo controls, state display and fault scenarios | `demo/midterm/` |
-| Product frontend | Five-page layout and mock review interactions | `frontend/` |
+| Product frontend | CSV ingestion, live queries and read-only review evidence | `frontend/` |
 
 ### 3. One review through the system
 
@@ -129,8 +129,8 @@ health and metrics. Batch upload accepts JSON fields `csv_text` or `comments`; r
 can use the JSON `idempotency_key` field. Direct multipart upload is not implemented.
 AI exposes `/extract-issues`; `/suggest-groups` remains a baseline placeholder.
 
-Planned work: real review samples, model-quality evaluation and semantic grouping; live data in the
-product frontend; persistent human decisions, group merge/split/follow-up actions; manual job replay.
+Planned work: representative review evaluation and semantic grouping; persistent human decisions,
+group merge/split/follow-up actions and their frontend integration; manual job replay.
 The original [target workflow image](assets/fig1_end_to_end_flow.png) remains a design reference,
 not a diagram of completed features. R2 details are in [r2-implementation.md](r2-implementation.md).
 
@@ -156,7 +156,7 @@ not a diagram of completed features. R2 details are in [r2-implementation.md](r2
 ### 1. 用途与范围
 
 完整产品用于帮助工作人员检查商品评论中的重复问题。原文及证据与分析建议分开保存，
-问题确认和处理完成应由人工决定。当前里程碑覆盖导入、后台分析、结果保存和小型演示页面。
+问题确认和处理完成应由人工决定。当前实现覆盖导入、后台分析、结果保存、真实接口产品前端和独立期中演示页面。
 语义归组和完整人工复核流程仍是后续工作。
 
 ### 2. 组件与当前数据流
@@ -171,7 +171,7 @@ flowchart LR
     Proxy --> AI[分析服务：模型或规则]
     DB --> Presenter
     Presenter --> Page
-    Original[原前端：模拟数据]
+    Original[产品前端：真实接口] --> API
 ```
 
 演示控制程序以子进程启动现有 API、AI 和 Worker，将页面评论整理成 CSV 输入交给现有导入接口，
@@ -179,7 +179,7 @@ flowchart LR
 独立 Compose 运行演示控制程序及其 PostgreSQL 服务。
 
 原项目的 `compose.yaml` 分别运行 API、Worker、AI 和 PostgreSQL，可选启用 Prometheus。
-原前端通过 API 的 `/ui/` 提供，但业务数据仍来自模拟数据。
+产品前端通过 `/ui/` 提供并调用同源 API；原静态设计预览保留在 `/ui/mock.html`。
 
 | 组件 | 职责 | 代码 |
 | --- | --- | --- |
@@ -188,7 +188,7 @@ flowchart LR
 | 分析 | 调用模型或中英文规则提取问题和原文证据 | `services/ai/app/` |
 | 共享数据 | 数据模型及输入输出格式 | `services/common/` |
 | 期中界面 | 演示控制、状态展示和故障场景 | `demo/midterm/` |
-| 产品前端 | 五页布局及模拟复核交互 | `frontend/` |
+| 产品前端 | CSV 上传、实时查询和只读复核证据 | `frontend/` |
 
 ### 3. 一条评论的处理过程
 
@@ -266,7 +266,7 @@ Demo 单独将重试等待缩短为 3、6 秒，租约为 60 秒，不修改原�
 上传使用 JSON 的 `csv_text` 或 `comments` 字段；重复批次请求可使用 JSON 的 `idempotency_key`。
 直接上传 multipart 文件尚未实现。AI 提供 `/extract-issues`，`/suggest-groups` 仍是基础占位接口。
 
-后续工作包括真实评论样本、模型质量评测和语义归组，产品前端接真实数据，
+后续工作包括真实评论样本、模型质量评测和语义归组，人工操作接口接入前端，
 人工决定与问题组合并／拆分／跟进，以及人工任务重放。
 原[目标流程图](assets/fig1_end_to_end_flow.png) 保留作设计参考，不表示全部功能已完成。
 R2 细节见 [r2-implementation.md](r2-implementation.md)。

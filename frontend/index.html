@@ -9,6 +9,7 @@
   <title>批次上传 · ReviewLens 评论洞察</title>
   <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzFGNEU3OSIvPjxwYXRoIGQ9Ik04IDEwLjVoMTZNOCAxNmgxME04IDIxLjVoNiIgc3Ryb2tlPSIjQkJEN0YyIiBzdHJva2Utd2lkdGg9IjIuNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PGNpcmNsZSBjeD0iMjMiIGN5PSIyMS41IiByPSIyLjgiIGZpbGw9IiM3RUM3RkYiLz48L3N2Zz4=">
   <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./live.css">
 </head>
 <body>
   <div class="app-shell">
@@ -91,7 +92,7 @@
 
       <footer class="app-footer">
         <span>MAIE6000c · 商品评论管理与重复问题发现系统</span>
-        <span>前端初版 / 2026</span>
+        <span>真实数据接入 / 2026</span>
       </footer>
     </div>
   </div>
@@ -101,8 +102,7 @@
     <span id="toast-message"></span>
   </div>
 
-  <!-- 使用普通脚本按顺序加载，保证直接双击 index.html 也能运行。 -->
-  <script src="./mock-data.js"></script>
-  <script src="./app.js"></script>
+  <script src="./api.js"></script>
+  <script src="./live.js"></script>
 </body>
 </html>

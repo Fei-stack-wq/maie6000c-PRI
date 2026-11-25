@@ -2,6 +2,12 @@
 
 ## English
 
+### Start the product UI
+
+On Windows, start Docker Desktop, then run ` .\scripts\start_product_ui.ps1 ` from the repository root. Open <http://localhost:8000/ui/>. Choose a UTF-8 CSV and upload it; processing runs automatically. For macOS/Linux use `docker compose up -d --build --wait` after creating `.env` from `.env.example`. Existing `.env` settings are kept.
+
+The review page is read-only until human-action APIs are available. [Frontend guide](frontend/README.md)
+
 ### Start the midterm demo
 
 Start Docker Desktop and open a terminal in the repository root.
@@ -36,7 +42,7 @@ The current working path is:
 | R1: ingestion and queries | CSV text / JSON input, row validation, deduplication, revisions, jobs and read APIs are implemented |
 | R2: background processing | Claiming, bounded retries, expired-job recovery, protected writes, evidence checks and metrics are implemented |
 | R3: analysis | Model extraction, Chinese/English rule fallback and source tracking are implemented; semantic grouping and labelled evaluation remain |
-| R4: product frontend | The original five-page interface uses mock data; live data and review-action APIs remain |
+| R4: product frontend | CSV upload, live progress, comment/issue queries and read-only review evidence are connected; review-write APIs remain |
 | Midterm demo | A separate Chinese/English page calls the existing backend and demonstrates persisted results and retry behaviour |
 
 The demo is a Week 07 presentation interface, not a replacement for the team frontend.
@@ -57,7 +63,7 @@ retry and result storage. It has not established accuracy across unrestricted re
 | `services/worker/app/` | Background job processing |
 | `services/ai/app/` | Internal model/rule analysis service |
 | `services/common/`, `alembic/` | Shared data models, request/response definitions and database migrations |
-| `frontend/` | Original product frontend with mock interactions |
+| `frontend/` | Live product frontend; original mock preview retained |
 | `demo/midterm/`, `compose.midterm.yaml` | Standalone midterm demo and its own database |
 | `tests/`, `scripts/` | Tests and operating scripts |
 | `docs/`, `review/` | Current documentation and earlier design/review material |
@@ -76,7 +82,7 @@ Worker-to-analysis calls use HTTP; Prometheus metrics and structured logs suppor
 ### Full project and tests
 
 To run the original services and frontend instead of the midterm demo, follow
-[Operations](docs/operations.md). Its UI is at `http://localhost:8000/ui/` and currently uses mock data.
+[Operations](docs/operations.md). Its UI is at `http://localhost:8000/ui/` and reads the real API.
 
 For a quick check of the running midterm demo, leave it idle and run
 ` .\scripts\start_midterm_demo.ps1 -Action check ` on Windows.
@@ -84,6 +90,12 @@ The complete R2 test environment is started by ` .\scripts\test_r2.ps1 `.
 Recorded results and their conditions are in the [verification record](templates/submissions/week07/assets/verification.md).
 
 ## 中文
+
+### 启动产品前端
+
+Windows 先启动 Docker Desktop，再在仓库根目录运行 ` .\scripts\start_product_ui.ps1 `。打开 <http://localhost:8000/ui/>，选择 UTF-8 CSV 并上传，后台会自动分析。macOS/Linux 首次从 `.env.example` 创建 `.env` 后运行 `docker compose up -d --build --wait`。已有 `.env` 配置会保留。
+
+人工复核接口完成前，复核页面只读。[前端说明](frontend/README.md)
 
 ### 启动期中 Demo
 
@@ -119,7 +131,7 @@ docker compose -f compose.midterm.yaml up --build -d --wait
 | R1 数据接入与查询 | 已实现 CSV 文本／JSON 输入、逐行校验、去重、版本记录、建任务和查询接口 |
 | R2 后台处理 | 已实现任务领取、有限重试、过期回收、受保护的结果保存、证据检查和指标 |
 | R3 分析 | 已接入模型提取、中英文规则回退和来源记录；语义归组和标注评测待完成 |
-| R4 产品前端 | 原五页界面使用模拟数据；真实数据接入和复核动作接口待完成 |
+| R4 产品前端 | 已接 CSV 上传、实时进度、评论／问题查询和只读复核证据；复核写接口待完成 |
 | 期中 Demo | 独立中英文页面连接现有后台，展示结果保存与失败重试 |
 
 Demo 仅用于 Week 07 展示，不替代组员的产品前端。两种语言页面共用同一轮演示。
@@ -138,7 +150,7 @@ Demo 展示处理、重试和结果保存，尚未验证对任意评论的识别
 | `services/worker/app/` | 后台任务处理 |
 | `services/ai/app/` | 内部模型／规则分析服务 |
 | `services/common/`、`alembic/` | 共享数据模型、输入输出格式和数据库迁移 |
-| `frontend/` | 原产品前端与模拟交互 |
+| `frontend/` | 真实接口前端；保留原静态设计预览 |
 | `demo/midterm/`、`compose.midterm.yaml` | 独立期中 Demo 及其数据库 |
 | `tests/`、`scripts/` | 测试和运行脚本 |
 | `docs/`、`review/` | 当前说明与早期设计、评审材料 |
@@ -157,7 +169,7 @@ Worker 通过 HTTP 调用分析服务，使用 Prometheus 指标和结构化日�
 ### 原项目与测试
 
 运行原项目服务和前端的方法见 [运行说明](docs/operations.md)。
-原前端地址为 `http://localhost:8000/ui/`，目前使用模拟数据。
+原前端地址为 `http://localhost:8000/ui/`，已读取真实接口。
 
 检查已启动的期中 Demo 时，先让页面空闲，再在 Windows 执行
 ` .\scripts\start_midterm_demo.ps1 -Action check `。
