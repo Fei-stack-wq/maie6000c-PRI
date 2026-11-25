@@ -2,17 +2,22 @@ from __future__ import annotations
 
 import logging
 from functools import lru_cache
+from typing import Literal
 
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pythonjsonlogger import jsonlogger
 
-from typing import Literal
 
 class Settings(BaseSettings):
     app_env: str = "development"
     log_level: str = "INFO"
     database_url: str = "postgresql+psycopg://postgres:postgres@db:5432/maie6000c"
     ai_service_url: str = "http://ai:8100"
+    review_auth_mode: Literal["demo", "session"] = "demo"
+    review_demo_operator: str = "demo-reviewer"
+    review_cookie_secure: bool = True
+    review_session_hours: int = Field(default=8, ge=1, le=24)
     worker_poll_seconds: float = 2.0
     worker_request_timeout_seconds: float = 20.0
 
@@ -21,7 +26,7 @@ class Settings(BaseSettings):
     llm_model: str = ""
     llm_api_key: str = ""
     llm_api_key_header: str = "api-key"
-    llm_timeout_seconds: float = 8.0
+    llm_timeout_seconds: float = Field(default=8.0, gt=0, le=120)
     llm_prompt_version: str = "review-extraction-v1"
 
     # Semantic grouping (sentence embeddings). Not used for /extract-issues.
@@ -41,6 +46,20 @@ class Settings(BaseSettings):
     )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @property
+    def extraction_request_timeout_seconds(self) -> float:
+        # Three model attempts, retry pauses, parsing and transport overhead.
+        return max(self.worker_request_timeout_seconds, self.llm_timeout_seconds * 3 + 10)
+
+    @model_validator(mode="after")
+    def require_secure_deployment(self):
+        if self.app_env not in {"development", "test"}:
+            if self.review_auth_mode != "session" or not self.review_cookie_secure:
+                raise ValueError(
+                    "Non-development deployments require session auth and HTTPS cookies"
+                )
+        return self
 
 
 @lru_cache(maxsize=1)

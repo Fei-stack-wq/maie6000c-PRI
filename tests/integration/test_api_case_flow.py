@@ -47,7 +47,8 @@ def test_batch_upload_creates_comments_and_jobs(client):
 
     detail = client.get(f"/comments/{comments[0]['id']}")
     assert detail.status_code == 200
-    assert detail.json()["revisions"] == []
+    assert len(detail.json()["revisions"]) == 1
+    assert detail.json()["revisions"][0]["body"] == detail.json()["body"]
     assert detail.json()["issues"] == []
     assert detail.json()["latest_analysis_run"] is None
 

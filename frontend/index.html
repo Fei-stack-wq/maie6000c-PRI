@@ -9,7 +9,6 @@
   <title>批次上传 · ReviewLens 评论洞察</title>
   <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzFGNEU3OSIvPjxwYXRoIGQ9Ik04IDEwLjVoMTZNOCAxNmgxME04IDIxLjVoNiIgc3Ryb2tlPSIjQkJEN0YyIiBzdHJva2Utd2lkdGg9IjIuNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PGNpcmNsZSBjeD0iMjMiIGN5PSIyMS41IiByPSIyLjgiIGZpbGw9IiM3RUM3RkYiLz48L3N2Zz4=">
   <link rel="stylesheet" href="./styles.css">
-  <link rel="stylesheet" href="./live.css">
 </head>
 <body>
   <div class="app-shell">
@@ -92,7 +91,7 @@
 
       <footer class="app-footer">
         <span>MAIE6000c · 商品评论管理与重复问题发现系统</span>
-        <span>真实数据接入 / 2026</span>
+        <span>整合工作台 / 2026</span>
       </footer>
     </div>
   </div>
@@ -102,7 +101,20 @@
     <span id="toast-message"></span>
   </div>
 
-  <script src="./api.js"></script>
-  <script src="./live.js"></script>
+  <!-- 复核通过同源 API 访问，请从 /ui/ 打开。 -->
+  <script src="./api-client.js"></script>
+  <script src="./auth-ui.js"></script>
+  <script src="./product-routes.js"></script>
+  <script src="./reassign-ui.js"></script>
+  <script src="./recheck-ui.js"></script>
+  <script src="./review-ui.js"></script>
+  <script src="./manual-review-ui.js"></script>
+  <script src="./issue-structure-ui.js"></script>
+  <script src="./issue-workflow-ui.js"></script>
+  <script src="./product-pages.js"></script>
+  <script src="./batch-upload.js"></script>
+  <script src="./batch-pages.js"></script>
+  <script src="./review-shell.js"></script>
+  <script src="./app.js"></script>
 </body>
 </html>

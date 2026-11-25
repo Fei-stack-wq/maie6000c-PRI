@@ -1,14 +1,9 @@
-"""Internal AI service: rule-baseline issue extraction (R3 starter).
-
-The contract is frozen in ``services/common/schemas.py`` (``ExtractionResult``):
-the service only proposes issues + evidence; the Worker validates evidence
-against the comment body and writes all database state.  R3 replaces the rule
-baseline with an LLM behind the same interface.
-"""
+"""Internal model/rule extraction and local semantic grouping; Worker owns persistence."""
 
 from __future__ import annotations
 
 import logging
+import time
 import re
 from time import perf_counter
 
@@ -33,7 +28,7 @@ from services.common.schemas import (
 configure_logging()
 logger = logging.getLogger("services.ai.main")
 
-app = FastAPI(title="Review Management AI Service (rule baseline)", version="0.2.0")
+app = FastAPI(title="Review Management AI Service", version="0.2.0")
 
 EXTRACTION_REQUESTS = Counter(
     "ai_extraction_requests_total", "Total extraction requests", ["has_issue"]
@@ -127,18 +122,32 @@ def run_extraction(payload: ExtractionRequest) -> ExtractionResult:
         result = extract_issues(payload)
         return result.model_copy(update={"source": "heuristic"})
 
-    try:
-        return call_llm_extraction(payload, settings)
-    except LlmError as exc:
-        reason = str(exc)
-        logger.warning(
-            "llm_fallback",
-            extra={"comment_id": payload.comment_id, "fallback_reason": reason},
-        )
-        result = extract_issues(payload)
-        return result.model_copy(
-            update={"source": "heuristic", "fallback_reason": reason}
-        )
+    attempts = 0
+    reason = None
+    for attempt in range(1, 4):
+        try:
+            attempts = attempt
+            result = call_llm_extraction(payload, settings)
+            return result.model_copy(update={"llm_attempts": attempts})
+        except LlmError as exc:
+            reason = str(exc)
+            # Missing configuration cannot improve by making repeated requests.
+            if reason in {"no_api_key", "missing_model_config"}:
+                attempts = 0
+                break
+            if attempt < 3:
+                logger.warning("llm_retry", extra={
+                    "comment_id": payload.comment_id, "attempt": attempt,
+                    "reason": reason,
+                })
+                time.sleep(0.5 * attempt)
+    logger.warning("llm_fallback", extra={
+        "comment_id": payload.comment_id, "fallback_reason": reason,
+        "llm_attempts": attempts,
+    })
+    return extract_issues(payload).model_copy(update={
+        "source": "heuristic", "fallback_reason": reason, "llm_attempts": attempts,
+    })
 
 
 @app.get("/", response_model=HealthResponse)

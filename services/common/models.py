@@ -147,6 +147,36 @@ def _check_in(column: str, values: tuple[str, ...], allow_null: bool = False) ->
 # ---------------------------------------------------------------------------
 # Ingestion
 # ---------------------------------------------------------------------------
+class ReviewUser(Base):
+    __tablename__ = "review_users"
+    __table_args__ = (
+        CheckConstraint("role IN ('viewer', 'reviewer')", name="ck_review_users_role"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ReviewSession(Base):
+    __tablename__ = "review_sessions"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("review_users.id"), nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ReviewLoginThrottle(Base):
+    __tablename__ = "review_login_throttles"
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
 class IngestionBatch(Base):
     """One upload / pull request; errors and counters live here."""
 
@@ -440,6 +470,8 @@ class CommentIssue(Base):
     evidence_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     evidence_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     evidence_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Human evidence can exist without any successful AI run.
+    evidence_body_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
     analysis_run_id: Mapped[int | None] = mapped_column(
         ForeignKey("analysis_runs.id", ondelete="SET NULL"), nullable=True
@@ -449,6 +481,9 @@ class CommentIssue(Base):
     )
     superseded_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
+    )
+    review_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
     )
     decided_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -486,6 +521,9 @@ class IssueAction(Base):
     from_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     to_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     payload_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(36), nullable=True, unique=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     operator: Mapped[str | None] = mapped_column(String(64), nullable=True)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(

@@ -12,13 +12,15 @@ COPY pyproject.toml README.md /app/
 COPY services /app/services
 COPY scripts /app/scripts
 COPY frontend /app/frontend
+COPY docs/architecture.md docs/human-review.md docs/operations.md /app/docs/
 COPY alembic /app/alembic
 COPY alembic.ini /app/alembic.ini
 COPY data /app/data
 
 RUN pip install --upgrade pip && pip install -e . \
     && if [ "$INSTALL_GROUPING" = "1" ]; then \
-         pip install -e '.[grouping]' \
+         pip install torch --index-url https://download.pytorch.org/whl/cpu \
+         && pip install -e '.[grouping]' \
          && python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2')"; \
        fi
 

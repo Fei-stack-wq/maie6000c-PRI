@@ -1,4 +1,4 @@
-# Product frontend / 产品前端
+# Integrated workbench / 整合工作台
 
 ## English
 
@@ -8,26 +8,20 @@ Start Docker Desktop, then run from the repository root:
 .\scripts\start_product_ui.ps1
 ```
 
-Open http://localhost:8000/ui/. The script creates `.env` only if it is missing and keeps existing model settings. Startup applies database migrations. Without model settings, analysis uses rules.
+Open <http://localhost:8000/ui/>. The script keeps an existing `.env`, builds the services and applies migrations through `20261121_0006`. The first AI build installs a CPU sentence model and downloads its weights, so it takes longer than a rule-only build. Keep Docker Desktop running.
 
-1. On **Batch upload**, keep `amazon_sample` as the platform for the provided samples, choose the 10-row UTF-8 CSV, and upload it.
-2. The resulting batch shows accepted, duplicate and invalid rows, then updates analysis progress every three seconds while work remains.
-3. Open **Comments** to inspect the saved reviews. Filter by product, analysis status or issue verdict; open a row to see evidence, analysis source and fallback reason. Use Refresh to fetch newer analysis results.
-4. Open **Issue groups** for current counts and evidence. **Human review** is read-only until the team supplies its write APIs. AI suggestions do not count as human acceptance.
+The default entry loads `api-client.js`, the session controls, product routes and the team's modular batch/comment/review/issue pages. It does not load the old `api.js`/`live.js` pair. Both previous versions remain archived, not mixed into the active router.
 
-CSV required columns: `shop_id,product_id,body`. Optional: `source_review_id,review_date,rating`. Maximum 5,000 rows; body maximum 2,000 characters. The browser limits files to 10 MB. The 10-row sample is included in the 60-row sample; repeating an import with the same platform should deduplicate existing reviews.
+1. Upload the 10-row CSV with platform `amazon_sample`, inspect progress and row errors.
+2. Open Comments; filter and paginate. Comment details include original evidence, model/rule source, model attempts and fallback reason.
+3. Open Human review to accept/reject suggestions, reassign or recheck evidence, or manually add an issue to a missed review.
+4. Open Issue groups to confirm/dismiss, add follow-up notes, resolve/reopen, merge or split. Evidence acceptance and issue resolution are distinct operations.
 
-Batch receipts are kept in this browser (last 20); the backend currently has no batch-list endpoint. Clear browser storage or use another browser and this receipt list will be empty, but database records remain. Look up an existing batch by its ID; comment and issue lists always query the database. Different stacks, including the midterm demo, use different databases.
+The API supplies identity and version tokens. If another user/Worker changes the record, reload current evidence before resubmitting; do not force an outdated decision. Session mode uses reviewer/viewer accounts; demo mode clearly labels its non-login identity and still writes real data.
 
-```powershell
-.\scripts\start_product_ui.ps1 -Action status
-.\scripts\start_product_ui.ps1 -Action stop
-node --test tests/frontend/api.test.cjs
-```
+Lists are loaded from the server, including batches. Refresh and deep links preserve their filters. Old completed reviews do not automatically acquire new semantic grouping. The first 10-row sample is included in the 60-row sample, so consistent reimports deduplicate.
 
-Stopping keeps database volumes. On macOS/Linux, create `.env` from `.env.example` on first setup and use `docker compose up -d --build --wait`. If API_HOST_PORT is overridden, use that port instead of 8000.
-
-`api.js` owns HTTP contracts; `live.js` owns routes, forms and rendering; `live.css` supplements the original styles. The original `app.js` and `mock-data.js` remain available through `/ui/mock.html` as a static design preview. The bilingual midterm demo remains separate. Human writes and semantic grouping are pending backend work. These changes introduce no new model calls beyond the existing analysis workflow.
+Frontend checks: `node --test tests/frontend/*.cjs`. The old adapter tests cover the archived read-only client; the routing/upload tests cover the active workbench. Full API and concurrent-write tests run with pytest; see Operations.
 
 ## 中文
 
@@ -37,23 +31,17 @@ Stopping keeps database volumes. On macOS/Linux, create `.env` from `.env.exampl
 .\scripts\start_product_ui.ps1
 ```
 
-打开 http://localhost:8000/ui/。脚本只在缺少 `.env` 时创建它，保留已有模型配置；启动时自动执行数据库迁移。没有模型配置时使用规则分析。
+打开 <http://localhost:8000/ui/>。脚本保留已有 `.env`，构建服务并迁移数据库到 `20261121_0006`。首次构建 AI 服务需要安装 CPU 语义模型并下载权重，会比纯规则版更久。运行时保持 Docker Desktop 开启。
 
-1. 在**批次上传**页面，提供的样本保持来源平台为 `amazon_sample`，选择 10 条 UTF-8 CSV 并上传。
-2. 页面显示接收、重复和无效行；任务未结束时每三秒更新分析进度。
-3. 在**评论**页面查看已保存数据，可按商品、分析状态和问题判断筛选。点击记录查看证据、分析来源和回退原因；点击刷新获取最新分析结果。
-4. 在**问题组**页面查看数量和证据。组员提供写接口前，**人工复核**页面只读。AI 建议不计为人工已接受。
+默认入口加载 `api-client.js`、身份控件、产品路由和组员拆分的批次／评论／复核／问题页面，不再加载旧的 `api.js`／`live.js`。旧版本已归档，不混入当前路由。
 
-CSV 必填列为 `shop_id,product_id,body`，可选列为 `source_review_id,review_date,rating`。最多 5,000 行，正文最多 2,000 字符；页面限制单个文件最多 10 MB。10 条样本包含在 60 条样本内，使用相同平台重复导入时，已有评论应被去重。
+1. 使用 `amazon_sample` 平台上传 10 条 CSV，查看进度和错误行。
+2. 打开评论列表进行筛选、分页。详情展示原文证据、模型／规则来源、模型尝试次数和回退原因。
+3. 在人工复核中接受／拒绝建议、改归组、重核证据，或为漏识别评论人工补充问题。
+4. 在问题组中确认／忽略、填写跟进备注、解决／重开、合并或拆分。接受证据与解决问题是不同操作。
 
-批次回执保存在本浏览器（最近 20 条），当前后端没有批次列表接口。清理浏览器记录或换浏览器后列表会为空，但数据库数据仍在。可输入已知批次编号查询；评论与问题列表始终读取数据库。完整项目与期中 Demo 等不同运行环境使用各自的数据库。
+身份与版本凭据由后端提供。其他成员或后台修改记录后，应重新加载最新证据再提交，不强行覆盖旧版本。会话模式使用复核员／只读成员账号；演示模式明确标记非登录身份，操作仍真实写库。
 
-```powershell
-.\scripts\start_product_ui.ps1 -Action status
-.\scripts\start_product_ui.ps1 -Action stop
-node --test tests/frontend/api.test.cjs
-```
+包括批次在内的列表均读取服务器。刷新和详情跳转保留筛选。已完成旧评论不会自动获得新语义归组。10 条样本包含在 60 条样本中，平台一致时重复导入会去重。
 
-停止不会删除数据库卷。macOS/Linux 首次从 `.env.example` 创建 `.env`，然后执行 `docker compose up -d --build --wait`。如果修改了 API_HOST_PORT，请使用对应端口。
-
-`api.js` 集中处理 HTTP 接口；`live.js` 负责路由、表单和展示；`live.css` 补充原样式。原有 `app.js` 和 `mock-data.js` 保留，通过 `/ui/mock.html` 查看原静态设计。双语期中 Demo 仍单独运行。人工写操作和语义归组等待后端补齐。本次前端接入沿用现有分析流程，不额外调用模型。
+前端检查：`node --test tests/frontend/*.cjs`。旧适配器测试覆盖归档只读客户端，路由／上传测试覆盖当前工作台。完整 API 和并发写入测试通过 pytest 执行，见运行说明。

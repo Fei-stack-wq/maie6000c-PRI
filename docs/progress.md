@@ -1,11 +1,36 @@
 # Development Progress / 开发进度
 
+## English — integrated state, 26 November 2026
+
+`integrate_v1` combines the model/frontend branch with semantic grouping and human review. The default UI uses the team's modular workbench; original static and previous read-only versions remain archived. Model attempts are limited to three before marked rule fallback; absent configuration uses rules without a provider request. Source, fallback reason and model attempts are shown in comment details.
+
+The integrated path is CSV import → persisted reviews/jobs → model/rule extraction → semantic grouping → saved evidence → human review → issue follow-up. Review/version protection, sessions, manual evidence, rechecks and merge/split are retained. Completed historic imports are not automatically regrouped.
+
+Verification so far: 446 Python unit/integration tests passed against isolated PostgreSQL, including the added key-free retries; 12 frontend tests passed. Migrations through `20261121_0006` and `alembic check` passed. See [integration verification](integrate-v1-verification.md) for live checks and exact limits. These local results do not imply remote CI or unrestricted model accuracy.
+
+Remaining work: representative quality evaluation, real-platform ingestion adapters as required by the team, and operator-driven failed-job replay. Review extraction still permits at most one issue per category per review.
+
+## 中文——2026 年 11 月 26 日整合状态
+
+`integrate_v1` 已整合模型／前端、语义归组和人工复核。默认入口采用组员的模块化工作台，原静态设计和上次只读前端单独归档。模型最多尝试三次后回退规则；缺少配置时不发送外部请求。评论详情显示来源、回退原因及模型尝试次数。
+
+整合流程为 CSV 导入 → 评论／任务落库 → 模型／规则提取 → 语义归组 → 保存证据 → 人工复核 → 问题跟进。保留复核版本保护、会话身份、人工证据、原文重核和合并／拆分。已完成的历史批次不会自动重新归组。
+
+已验证：隔离 PostgreSQL 环境中 446 项 Python 单元／集成测试通过，包含新增无密钥重试测试；12 项前端测试通过；数据库迁移到 `20261121_0006` 及 `alembic check` 通过。真实运行检查与限制见[整合验证记录](integrate-v1-verification.md)。这些本地结果不代表远端 CI 已运行，也不代表不受限评论的模型准确率。
+
+后续工作：代表性质量评测、团队需要的真实平台数据适配、人工发起失败任务重放。提取器目前每条评论每个类别最多一个问题。
+
+---
+
+The following sections are historical milestone records. / 下文为历史里程碑记录。
+
 ## English
 
-### 1. Current snapshot — 20 November 2026
+### 1. Historical snapshot — 29 October 2026
 
-The working path is review submission → database/job creation → background model/rule analysis →
-evidence validation → saved results shown in the live product frontend and midterm demo. The midterm interface uses the project backend and its own PostgreSQL database.
+The working path is review submission → database/job creation → background rule analysis →
+evidence validation → saved results shown in the midterm demo. The original product frontend still
+uses mock data. The midterm interface uses the project backend and its own PostgreSQL database.
 
 ### 2. Completed and remaining work
 
@@ -13,8 +38,8 @@ evidence validation → saved results shown in the live product frontend and mid
 | --- | --- | --- |
 | Data/ingestion | Nine domain tables, migrations, CSV/JSON checks, row errors, deduplication, revisions and queries | Real platform samples, direct file upload, error export and pagination improvements |
 | Background jobs | Claim ownership, retries, expiry recovery, transactional saves, evidence validation, changed-input requeue and metrics | Manual task retry/recover endpoints, batch replay and persistent task-operation audit |
-| Analysis | Model extraction, rule fallback, source tracking, three-way result and original evidence; category grouping | Key-free adapter/fallback tests, semantic grouping, labelled evaluation and cost records |
-| Product frontend | CSV file upload, batch polling, paginated/filterable live comment/issue lists, evidence and source display | Persistent human decisions/follow-up and their frontend actions |
+| Analysis | Chinese/English rule issues, three-way result and source evidence; category grouping | LLM extraction, semantic grouping, labelled evaluation and cost records |
+| Product frontend | Five-page layout, filtering/detail views and mock review interactions | Live API data and persistent human decisions/follow-up |
 | Midterm demo | Separate source build/database, Chinese and English URLs, normal/retry/failure scenarios, startup/check/stop scripts | No further demo features planned for this milestone |
 
 Members: FEI, Wenxiang; XIANG, Ke; XU, Chao; ZHANG, Mingyang.
@@ -31,26 +56,22 @@ restart persistence of five jobs/eight analysis attempts in an isolated test run
 The R2 statement coverage record is 92%; it is not an analysis-quality score.
 The later delivery-rule extension passed 78 analysis unit tests and four live demo regressions,
 separately from the earlier full-suite run. The developer checked English-page buttons.
-The 7 November commit adds the model adapter and source display. It adds no automated adapter,
-model-fallback or review-write tests; the October results describe the earlier rule baseline.
 Commands, conditions and the result screenshot are indexed in the
 [verification record](../templates/submissions/week07/assets/verification.md).
-
-Frontend checks on 20 November: four Node API-boundary tests passed. An isolated PostgreSQL/Compose run processed the 10-row sample, then accepted 50 new rows and deduplicated 10 from the 60-row sample; all 60 comments finished in rule mode. Reimporting 60 rows deduplicated all 60; invalid CSV returned stored row errors. Browser checks covered upload, product filtering, pagination, reload, empty results, evidence/source display and read-only review. These checks do not establish model accuracy or validate future human-write APIs.
 
 ### 4. Next steps
 
 1. Collect representative reviews and evaluate missed and wrongly flagged complaints.
-2. Add mocked adapter/fallback tests, evaluate model extraction and implement semantic grouping.
-3. Implement human review/follow-up writes and connect their frontend actions.
+2. Implement and evaluate model extraction and semantic grouping.
+3. Connect the product frontend and persist human review and follow-up.
 4. Add manual task replay and task-operation records.
 
 ## 中文
 
-### 1. 当前状态——2026 年 11 月 20 日
+### 1. 历史状态——2026 年 10 月 29 日
 
-已接通评论提交 → 入库建任务 → 后台模型／规则分析 → 证据检查 → 结果保存并在期中 Demo 展示。
-产品前端已接 CSV 文件上传、批次进度和真实评论／问题查询。期中界面使用项目后台和独立的 PostgreSQL 数据库。
+已接通评论提交 → 入库建任务 → 后台规则分析 → 证据检查 → 结果保存并在期中 Demo 展示。
+原产品前端仍使用模拟数据。期中界面使用项目后台和独立的 PostgreSQL 数据库。
 
 ### 2. 已完成与待完成
 
@@ -58,8 +79,8 @@ Frontend checks on 20 November: four Node API-boundary tests passed. An isolated
 | --- | --- | --- |
 | 数据／接入 | 九张业务表、迁移、CSV／JSON 检查、错误行、去重、版本和查询 | 真实平台样本、直接文件上传、错误导出和分页改进 |
 | 后台任务 | 领取归属、重试、过期回收、事务保存、证据检查、正文更新重排队和指标 | 人工任务重试／回收接口、批量重放、持久化任务操作审计 |
-| 分析 | 模型提取、规则回退、来源记录、三态结果和原文证据；按类别归组 | 无密钥适配器／回退测试、语义归组、标注评测与成本记录 |
-| 产品前端 | CSV 文件上传、批次轮询、真实评论／问题分页筛选、证据与来源展示 | 人工决定与跟进落库及对应前端操作 |
+| 分析 | 中英文规则、三态结果和原文证据；按类别归组 | 大模型提取、语义归组、标注评测与成本记录 |
+| 产品前端 | 五页布局、筛选／详情和模拟复核交互 | 真实接口数据、人工决定与跟进落库 |
 | 期中 Demo | 独立源码构建／数据库、中英文地址、正常／重试／失败场景、启停与检查脚本 | 本阶段不再扩展演示功能 |
 
 成员：FEI, Wenxiang；XIANG, Ke；XU, Chao；ZHANG, Mingyang。
@@ -74,15 +95,11 @@ Demo 使用中已发现拒绝保修等售后投诉可能漏检，结果可能是
 R2 语句覆盖率记录为 92%，不是分析准确率。
 后续物流规则扩展另通过 78 项分析单元测试和四例真实 Demo 回归，与较早完整测试分开记录。
 开发者已检查英文页按钮。
-11 月 7 日的提交新增模型适配器和来源展示，尚未新增适配器、模型回退或人工审核写入的自动化测试；
-10 月记录对应较早的规则基线。
 命令、条件和结果截图见 [验证记录](../templates/submissions/week07/assets/verification.md)。
-
-2026 年 11 月 20 日前端检查：4 项 Node 接口边界测试通过。隔离 PostgreSQL／Compose 环境先处理 10 条样本，再从 60 条中新增 50 条、去重 10 条，最终 60 条均在规则模式下完成分析；再次导入全部去重，错误 CSV 返回已保存的行错误。浏览器验证了上传、商品筛选、分页、刷新、空结果、证据／来源展示与只读复核。这些检查不代表模型准确率，也未验证后续人工写接口。
 
 ### 4. 下一步
 
 1. 收集有代表性的评论，评估漏检和误判。
-2. 增加适配器／回退模拟测试，评测模型提取并实现语义归组。
-3. 实现人工复核和跟进写接口，再接入对应前端操作。
+2. 实现并评测模型提取和语义归组。
+3. 产品前端接真实接口，保存人工复核和跟进记录。
 4. 增加人工任务重放及任务操作记录。

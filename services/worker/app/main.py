@@ -44,7 +44,7 @@ def process_job(claim: JobClaim) -> str:
             return outcome
         shared = get_settings()
         raw, latency_ms = analysis.call_ai_service(
-            snapshot, shared.ai_service_url, shared.worker_request_timeout_seconds,
+            snapshot, shared.ai_service_url, shared.extraction_request_timeout_seconds,
         )
         result = analysis.validate_ai_result(raw, snapshot)
         verified = analysis.verify_evidence(result, snapshot)
@@ -102,7 +102,7 @@ def run_once() -> str:
 def run_worker(stop_event: threading.Event | None = None, serve_metrics: bool = True) -> None:
     shared = get_settings()
     worker = get_worker_settings()
-    if worker.lease_seconds <= shared.worker_request_timeout_seconds:
+    if worker.lease_seconds <= shared.extraction_request_timeout_seconds:
         raise ValueError("Worker lease must exceed the AI request timeout")
     stop = stop_event if stop_event is not None else threading.Event()
     previous = {}

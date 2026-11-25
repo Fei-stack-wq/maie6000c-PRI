@@ -2,6 +2,28 @@
 
 ## English
 
+### Integrated product: quick start
+
+Start Docker Desktop, then run from the repository root:
+
+```powershell
+.\scripts\start_product_ui.ps1
+```
+
+Open <http://localhost:8000/ui/>. The script keeps an existing `.env`, builds the services and applies migrations through `20261121_0006`. The first AI build installs a CPU sentence model and downloads its weights, so it takes longer than a rule-only build. Keep Docker Desktop running.
+
+The default `.env.example` selects real-write demo identity. Session-mode accounts, reviewer/viewer permissions and cookie configuration remain described below. Stop with ` .\scripts\start_product_ui.ps1 -Action stop `; data volumes remain.
+
+Model configuration remains in local `.env`: `LLM_PROVIDER=openai_compatible`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_API_KEY_HEADER=api-key` (or `Authorization`), `LLM_TIMEOUT_SECONDS=8`, `LLM_PROMPT_VERSION=review-extraction-v1`. Copy `.env.example` only when `.env` is absent. Rebuild/recreate services after changes; never print or commit the Key.
+
+The configured model receives at most three attempts before rule fallback. Missing configuration falls back immediately. Comment details show source, model, model-attempt count and fallback reason. Worker task retries handle failures reaching the Worker; they are not the same count. Outer request timeouts accommodate all three model attempts.
+
+Compose installs local multilingual MiniLM in the AI image. Run `docker compose exec ai python -m scripts.probe_grouping_backend` to verify the backend is actually `sentence_transformers`; a healthy HTTP endpoint alone does not prove semantic grouping is active. A failed grouping call can use the coarse category fallback. The first image build requires network access and disk space for CPU dependencies/model files.
+
+The default workbench uses real batch lists and human writes. Original static preview: `/ui/legacy/`; previous read-only version: `/ui/previous/`. Identical CSV imports deduplicate; they do not reanalyse completed historical comments. Use an isolated database to compare new grouping without deleting existing work.
+
+
+
 ### 1. Midterm demo: quickest start
 
 Start Docker Desktop. In the repository root:
@@ -19,8 +41,7 @@ docker compose -f compose.midterm.yaml up --build -d --wait
 Open **<http://localhost:18717/en>** or <http://localhost:18717/zh>.
 Keep the sample review, submit it, then start analysis. Use a new round to try retry scenarios.
 The [demo instructions](../demo/midterm/README.md) cover the buttons, port changes and shutdown.
-This mode builds from source and creates its own database. Rule mode starts without a key;
-model mode uses the configuration in section 7.
+This mode builds from repository source, needs no `.env` or API key, and creates its own database.
 It can run alongside the original project.
 
 ### 2. Original project services
@@ -38,11 +59,24 @@ keep an existing `.env` if it contains your settings.
 | Address | Use |
 | --- | --- |
 | `http://localhost:8000/docs` | Submit real batches and query the backend |
-| `http://localhost:8000/ui/` | Live product UI: CSV upload, progress, comments and issue evidence |
-| `http://localhost:8100/docs` | Model/rule analysis API |
+| `http://localhost:8000/ui/` | Live CSV upload, batch progress, comments, issue groups and human review |
+| `http://localhost:8100/docs` | Model/rule and semantic grouping API |
 | `http://localhost:9090` | Prometheus after `docker compose --profile observability up -d` |
 
-API startup applies the existing migrations. To add prepared sample data, run
+API startup applies migrations through `20261121_0006`. The example configuration uses explicit demo identity.
+For named accounts, set `REVIEW_AUTH_MODE=session` and `REVIEW_COOKIE_SECURE=false` for local HTTP,
+then recreate the API with `docker compose up -d --force-recreate api`. Provision accounts interactively:
+
+```bash
+docker compose exec api python -m services.api.app.auth.manage create reviewer1 --role reviewer
+docker compose exec api python -m services.api.app.auth.manage create viewer1 --role viewer
+```
+
+Use a reviewer to upload and review; a viewer can only read. HTTPS deployments keep Secure cookies enabled;
+see [human review](human-review.md) for configuration, role boundaries and acceptance steps.
+The demo mode also writes real database records; it is not a dry run.
+
+To add prepared sample data, run
 `docker compose exec api python -m scripts.seed_demo_data`.
 Seeded records are example data, not evidence of a newly executed analysis.
 Stop this stack with `docker compose down`; this keeps its data volume.
@@ -73,8 +107,8 @@ docker compose -f compose.midterm.yaml exec midterm-demo python -c "import urlli
 ### 4. Failures and recovery
 
 A retryable failure returns the job to `pending` and the comment to `queued`, with a next-run time.
-Final failures remain `failed`. The demo shows failures directly; the original project exposes them
-through query APIs and the live frontend.
+Final failures remain `failed`. The demo shows failures directly; the original project shows live
+analysis states in batch details and comment lists, with additional error codes available through job APIs.
 Every worker poll checks for expired claims and requeues or finally fails them according to the limit.
 The same recovery can be invoked in the original stack:
 
@@ -92,8 +126,14 @@ For configuration and error rules, see [R2 implementation](r2-implementation.md)
 | Demo's ten bilingual cases | Idle demo: ` .\scripts\start_midterm_demo.ps1 -Action check `; macOS/Linux command is in the demo instructions |
 | Complete R2 checks | Windows with Docker: ` .\scripts\test_r2.ps1 ` creates and removes isolated test resources |
 | Unit/integration only | Python 3.11 with `pip install -e ".[dev]"`: `python -m pytest -q tests/unit tests/integration` |
-| PostgreSQL locking tests | Included above only with `WORKER_TEST_DATABASE_URL` pointing to a separate PostgreSQL database ending in `_test`; otherwise six tests skip |
+| PostgreSQL locking tests | Included above only with `WORKER_TEST_DATABASE_URL` pointing to a separate PostgreSQL database ending in `_test`; otherwise the PostgreSQL cases skip (currently 40 cases) |
+| Frontend routes and CSV handling | Node 22: `node --test tests/frontend/*.cjs` |
+| Authenticated review acceptance | Explicit local session-mode opt-in and test credentials: see [human review](human-review.md); `python -m pytest -q tests/smoke/test_human_review_live.py` |
 | Original-stack smoke | `SMOKE_BASE_URL=http://localhost:8000 pytest tests/smoke -q` runs the basic smoke case; four fault/recovery cases require the isolated runner |
+
+The local human-review delivery passed 405 Python tests (including 40 PostgreSQL cases) and
+8 frontend tests. PR CI also runs the frontend tests and `alembic check`; this record does not imply
+a remote CI run before the branch is pushed.
 
 The R2 script runs unit/integration tests, five real-service smoke tests, migration round-trips
 and shutdown checks. The earlier recorded run passed 94 unit/integration tests; a later delivery-rule
@@ -106,105 +146,39 @@ is a separate ten-case bilingual check. See the [verification record](../templat
 | --- | --- |
 | Cannot connect to Docker | Start Docker Desktop with Linux containers |
 | Demo port occupied | Windows: add `-Port 18727`; macOS/Linux: set `MIDTERM_DEMO_PORT=18727` for the Compose startup command |
-| Warranty/after-sales complaint returns no issue or unknown | Inspect source/reason to identify rule or model output, then check the original review; rule coverage and model interpretation can both be limited |
+| Warranty/after-sales complaint returns no issue or unknown | This is a known rule-coverage limit, not necessarily an execution failure; inspect the original review |
 | Build downloads fail | Check network access and retry the build |
 | Demo does not become healthy | Inspect `midterm-demo` container logs; confirm migration and API/AI startup |
-| Unknown result for an English review | Check analysis source and original text; unknown is a saved result, and rule mode has limited phrase coverage |
+| Unknown result for an English review | English rules cover selected phrases; other text usually returns unknown, while positive cues can yield no issue; inspect the source review |
 
 Stopping or starting a new demo round keeps database records. The demo has its own volume;
 the original project has a different volume. Deleting a volume or resetting a database is a developer
 maintenance action, not part of a normal demonstration. Applied migrations should be followed by
 new migrations rather than edited in place. Use downgrade tests only on disposable test databases.
 
-### 7. AI configuration
-
-`run_extraction()` supports three outcomes: configured rules, model output, and rule fallback
-after an expected model-call failure. Configure these keys in the local `.env` at the repository
-root. The gateway and model below are the course setup used in our local development.
-
-```dotenv
-LLM_PROVIDER=openai_compatible
-LLM_BASE_URL=https://hkust.azure-api.net/hkust-genai/v1
-LLM_MODEL=gemini-2.5-flash-lite
-LLM_API_KEY=YOUR_LOCAL_KEY
-LLM_API_KEY_HEADER=api-key
-LLM_TIMEOUT_SECONDS=8
-LLM_PROMPT_VERSION=review-extraction-v1
-
-# Semantic grouping (Compose AI image installs sentence-transformers; deliverable backend).
-GROUPING_ENABLED=true
-GROUPING_SIMILARITY_THRESHOLD=0.35
-GROUPING_OVERLAP_THRESHOLD=0.55
-GROUPING_TOP2_MARGIN=0.08
-GROUPING_KEYWORD_GATE=true
-GROUPING_EMBEDDING_BACKEND=sentence_transformers
-GROUPING_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
-```
-
-Deliverable Compose builds the **ai** service with `INSTALL_GROUPING=1` (MiniLM).
-api/worker stay on the slim image. Dual thresholds **T_main=0.35 / T_high=0.55**
-(`GROUPING_OVERLAP_THRESHOLD` = T_high bypass) plus **top2_margin=0.08** were locked on
-2026-11-22 on `pairs_calib.jsonl` (≈0.84) **without** synonym alias clusters; held-out
-`pairs_test.jsonl` ≈0.77. Handwritten `pairs.jsonl` is smoke only (see `EVAL_NOTES.md`). Re-score with:
-
-```powershell
-python -m scripts.eval_grouping --backend sentence_transformers --pairs data/grouping_eval/pairs_calib.jsonl
-python -m scripts.eval_grouping --backend sentence_transformers --pairs data/grouping_eval/pairs_test.jsonl --fixed-t-main 0.35 --fixed-t-overlap 0.55 --fixed-top2-margin 0.08
-```
-
-Worker records `/suggest-groups` latency in Prometheus as `worker_grouping_request_seconds`
-and attaches `grouping_hints` (including fallback reasons) on `AnalysisRun.output_json`.
-
-Hashing remains only for offline/CI unit tests without model weights — not the deliverable path.
-Full-stack acceptance (extract + semantic grouping):
-
-```powershell
-.\scripts\test_grouping_e2e.ps1
-```
-
-Use `LLM_PROVIDER=heuristic` for local rule mode. `LLM_API_KEY` is a local credential;
-keep it out of committed examples. `.env.example` lists `GROUPING_*` and commented `LLM_*`.
-The ordinary Compose passes `.env` into its services; the demo Compose passes these keys to the
-controller, whose analysis child process inherits them.
-
-After changing source or configuration, use the command for the running stack:
-
-```powershell
-# Ordinary project stack
-docker compose up --build -d --wait --force-recreate ai api worker
-
-# Standalone demo (Windows)
-.\scripts\start_midterm_demo.ps1
-```
-
-For the demo on macOS/Linux, use
-`docker compose -f compose.midterm.yaml up --build -d --wait --force-recreate midterm-demo`.
-Stop and start a new round after restarting the demo.
-
-| Setting or signal | Current behaviour |
-| --- | --- |
-| Source | `llm` for model output; `heuristic` for rules |
-| Fallback | `fallback_reason` records errors such as `no_api_key`, `timeout`, `auth_error`, `rate_limited` or `schema_violation` |
-| Persistence | Source/reason are saved in `AnalysisRun.output_json`, exposed by comment details and demo attempt history |
-| Model timeout | Configurable, default 8 seconds; demo forwarding waits 15 seconds and its Worker waits 22 seconds, including the 3-second presentation delay |
-| Logs | `llm_fallback` in AI logs; the demo log is `/tmp/midterm-ai.log` |
-
-An expected model-call failure invokes rules and returns a successful analysis response when
-fallback succeeds. Worker retries apply to errors reaching the Worker, including the demo's
-injected HTTP 503s. A provider HTTP 429 currently triggers rule fallback.
-
-For a configuration check, run the applicable command. Both print only provider, model and timeout:
-
-```bash
-docker compose exec ai python -c "from services.common.config import get_settings; s=get_settings(); print(s.llm_provider, s.llm_model, s.llm_timeout_seconds)"
-docker compose -f compose.midterm.yaml exec midterm-demo python -c "from services.common.config import get_settings; s=get_settings(); print(s.llm_provider, s.llm_model, s.llm_timeout_seconds)"
-```
-
-Set `LLM_PROVIDER=heuristic` and recreate the demo before running its ten-case checker, which
-asserts `rule-baseline-2`. Existing test counts describe earlier rule-mode runs. Dedicated mocked
-adapter/fallback tests, review-write tests and a labelled model-evaluation set remain pending.
-
 ## 中文
+
+### 整合产品：快捷启动
+
+先启动 Docker Desktop，在仓库根目录运行：
+
+```powershell
+.\scripts\start_product_ui.ps1
+```
+
+打开 <http://localhost:8000/ui/>。脚本保留已有 `.env`，构建服务并迁移数据库到 `20261121_0006`。首次构建 AI 服务需要安装 CPU 语义模型并下载权重，会比纯规则版更久。运行时保持 Docker Desktop 开启。
+
+默认 `.env.example` 使用会真实写库的演示身份。会话账号、复核员／只读权限和 Cookie 设置见下文。停止使用 ` .\scripts\start_product_ui.ps1 -Action stop `，数据卷保留。
+
+模型配置保存在本地 `.env`：`LLM_PROVIDER=openai_compatible`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY`、`LLM_API_KEY_HEADER=api-key`（或 `Authorization`）、`LLM_TIMEOUT_SECONDS=8`、`LLM_PROMPT_VERSION=review-extraction-v1`。只在 `.env` 不存在时复制示例；修改后重建／重建容器，不打印或提交 Key。
+
+模型已配置时最多尝试三次，再回退规则；缺少配置直接回退。评论详情展示来源、模型、模型尝试次数和回退原因。只有传到 Worker 的执行错误才进入任务重试，两种次数不同。外围请求超时已适配三次模型尝试。
+
+Compose 会在 AI 镜像安装本地多语言 MiniLM。可运行 `docker compose exec ai python -m scripts.probe_grouping_backend`，确认实际后端是 `sentence_transformers`。HTTP 健康不等于语义归组生效；归组调用失败可能使用粗类别回退。首次构建需要网络和 CPU 依赖／模型文件所需磁盘空间。
+
+默认工作台读取真实批次列表并提交人工操作。原静态设计在 `/ui/legacy/`，上次只读版本在 `/ui/previous/`。重复上传相同 CSV 会去重，不会重新分析已完成的历史评论；新旧效果比较使用独立数据库，不删除已有工作数据。
+
+
 
 ### 1. 期中 Demo：最快启动
 
@@ -223,7 +197,7 @@ docker compose -f compose.midterm.yaml up --build -d --wait
 打开 **<http://localhost:18717/en>** 或 <http://localhost:18717/zh>。
 保留示例评论，先提交评论，再启动分析，开始新一轮可切换重试场景。
 按钮、换端口和停止方法见 [Demo 运行说明](../demo/midterm/README.md)。
-此模式从仓库源码构建并创建独立数据库，可与原项目同时运行。规则模式无需密钥，模型模式配置见第 7 节。
+此模式从仓库源码构建，不需要 `.env` 或 API Key，创建独立数据库，可与原项目同时运行。
 
 ### 2. 原项目服务
 
@@ -239,11 +213,23 @@ Windows 也可使用 `Copy-Item .env.example .env`。只在首次准备时复制
 | 地址 | 用途 |
 | --- | --- |
 | `http://localhost:8000/docs` | 提交真实批次、查询后台 |
-| `http://localhost:8000/ui/` | 产品前端：CSV 上传、进度、评论和问题证据 |
-| `http://localhost:8100/docs` | 模型／规则分析 API |
+| `http://localhost:8000/ui/` | 真实 CSV 上传、批次进度、评论、问题组和人工复核 |
+| `http://localhost:8100/docs` | 模型／规则分析与语义归组 API |
 | `http://localhost:9090` | 执行 `docker compose --profile observability up -d` 后的 Prometheus |
 
-API 启动时执行现有迁移。加入预制示例数据可执行
+API 启动时迁移到 `20261121_0006`。示例配置使用明确标注的演示身份。
+启用独立账号时，在 `.env` 设置 `REVIEW_AUTH_MODE=session`；本机 HTTP 同时设置
+`REVIEW_COOKIE_SECURE=false`，再执行 `docker compose up -d --force-recreate api`。交互创建账号：
+
+```bash
+docker compose exec api python -m services.api.app.auth.manage create reviewer1 --role reviewer
+docker compose exec api python -m services.api.app.auth.manage create viewer1 --role viewer
+```
+
+复核员可以上传和复核，只读成员仅能查询。HTTPS 部署保持 Secure Cookie；详细配置、权限边界
+和验收步骤见[人工复核说明](human-review.md)。演示身份也会写入真实数据库，不是模拟提交。
+
+加入预制示例数据可执行
 `docker compose exec api python -m scripts.seed_demo_data`。
 种子记录是示例数据，不能作为刚刚执行了一次分析的证据。
 使用 `docker compose down` 停止此栈，数据卷保留。
@@ -273,7 +259,7 @@ docker compose -f compose.midterm.yaml exec midterm-demo python -c "import urlli
 ### 4. 失败与回收
 
 可重试失败将任务放回 `pending`、评论放回 `queued`，并设置下次执行时间；最终失败保持 `failed`。
-小 Demo 直接展示失败；产品前端通过真实查询接口展示批次与评论的失败状态。
+小 Demo 直接展示失败；原项目的批次详情和评论列表展示真实分析状态，具体错误码可通过任务接口查看。
 Worker 每轮检查过期领取，根据剩余次数重新排队或最终失败。原项目也可以手动调用同一回收逻辑：
 
 ```bash
@@ -290,8 +276,13 @@ docker compose exec worker python -m scripts.recover_stale_jobs
 | Demo 十个双语用例 | 页面空闲时执行 ` .\scripts\start_midterm_demo.ps1 -Action check `；macOS/Linux 命令见 Demo 说明 |
 | 完整 R2 检查 | Windows 启动 Docker 后执行 ` .\scripts\test_r2.ps1 `，脚本创建并清理独立测试资源 |
 | 仅单元／集成 | Python 3.11 执行 `pip install -e ".[dev]"` 后运行 `python -m pytest -q tests/unit tests/integration` |
-| PostgreSQL 锁测试 | 需将 `WORKER_TEST_DATABASE_URL` 指向名称以 `_test` 结尾的独立 PostgreSQL 测试库，否则六项跳过 |
+| PostgreSQL 锁测试 | 需将 `WORKER_TEST_DATABASE_URL` 指向名称以 `_test` 结尾的独立 PostgreSQL 测试库，否则 PostgreSQL 用例跳过（当前 40 项） |
+| 前端路由与 CSV 文件处理 | Node 22：`node --test tests/frontend/*.cjs` |
+| 登录模式完整复核验收 | 显式启用本机测试地址及测试账号，见[人工复核说明](human-review.md)；`python -m pytest -q tests/smoke/test_human_review_live.py` |
 | 原项目冒烟 | `SMOKE_BASE_URL=http://localhost:8000 pytest tests/smoke -q` 执行基础用例；四项故障／回收用例需要隔离启动脚本 |
+
+本地人工复核交付已通过 405 项 Python 测试（含 40 项 PostgreSQL）和 8 项前端测试。
+PR 的 CI 同时执行前端测试和 `alembic check`；尚未推送时，这不是远端 CI 已运行的证明。
 
 完整 R2 脚本运行单元／集成、5 项真实服务冒烟、迁移往返和正常退出检查。
 较早记录为 94 项单元／集成通过；后续物流规则扩展另通过 78 项分析单元测试和四例真实 Demo 回归。
@@ -304,93 +295,11 @@ Demo 验收是独立的十例双语检查。
 | --- | --- |
 | 无法连接 Docker | 启动 Docker Desktop 并使用 Linux containers |
 | Demo 端口占用 | Windows 加 `-Port 18727`；macOS/Linux 在 Compose 启动命令前设置 `MIDTERM_DEMO_PORT=18727` |
-| 保修／售后投诉返回无问题或无法判断 | 先看来源／回退原因判断当前路径，再核对原文；规则覆盖和模型理解都可能有局限 |
+| 保修／售后投诉返回无问题或无法判断 | 属于已知规则覆盖边界，不一定是程序运行失败；应查看原评论 |
 | 构建下载失败 | 检查网络后重新构建 |
 | Demo 服务不健康 | 查看 `midterm-demo` 容器日志，确认迁移和 API／AI 启动情况 |
-| 英文评论返回无法判断 | 检查分析来源和原文；unknown 是已保存结果，规则模式的表达覆盖有限 |
+| 英文评论返回无法判断 | 英文规则只覆盖部分表达，其他内容通常返回 unknown，但好评表达也可能导致无问题；应核对原文 |
 
 停止或开始新一轮演示都会保留数据库记录。Demo 和原项目使用不同的数据卷。
 删除卷、重置数据库属于开发维护，不是正常演示步骤。已经应用的迁移应通过新增迁移继续修改，
 不要直接改历史；降级测试仅在可丢弃的测试数据库执行。
-
-### 7. 模型配置
-
-`run_extraction()` 支持主动规则、模型输出和已分类模型故障后的规则回退。
-在仓库根目录的本地 `.env` 中配置以下键；地址和模型为本地开发使用的课程配置。
-
-```dotenv
-LLM_PROVIDER=openai_compatible
-LLM_BASE_URL=https://hkust.azure-api.net/hkust-genai/v1
-LLM_MODEL=gemini-2.5-flash-lite
-LLM_API_KEY=YOUR_LOCAL_KEY
-LLM_API_KEY_HEADER=api-key
-LLM_TIMEOUT_SECONDS=8
-LLM_PROMPT_VERSION=review-extraction-v1
-
-# 语义归组（Compose 的 AI 镜像安装 sentence-transformers；交付后端）
-GROUPING_ENABLED=true
-GROUPING_SIMILARITY_THRESHOLD=0.35
-GROUPING_OVERLAP_THRESHOLD=0.55
-GROUPING_TOP2_MARGIN=0.08
-GROUPING_KEYWORD_GATE=true
-GROUPING_EMBEDDING_BACKEND=sentence_transformers
-GROUPING_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
-```
-
-交付 Compose 仅为 **ai** 服务设置 `INSTALL_GROUPING=1`（MiniLM）；api／worker 保持瘦镜像。
-双阈值 **T_main=0.35 / T_high=0.55**（`GROUPING_OVERLAP_THRESHOLD` 即无关键词旁路阈值）与
-**top2_margin=0.08** 于 2026-11-22 在校准集 `pairs_calib.jsonl` 上锁定（≈0.84，**无**同义别名簇），
-held-out `pairs_test.jsonl` ≈0.77。手写 `pairs.jsonl` 仅冒烟（见 `EVAL_NOTES.md`）。重测：
-
-```powershell
-python -m scripts.eval_grouping --backend sentence_transformers --pairs data/grouping_eval/pairs_calib.jsonl
-python -m scripts.eval_grouping --backend sentence_transformers --pairs data/grouping_eval/pairs_test.jsonl --fixed-t-main 0.35 --fixed-t-overlap 0.55 --fixed-top2-margin 0.08
-```
-
-Worker 将 `/suggest-groups` 耗时记入 `worker_grouping_request_seconds`，并在
-`AnalysisRun.output_json.grouping_hints` 写入回退原因。
-
-hashing 仅用于无模型权重的本机／CI 单测，不算交付语义路径。全栈验收（提取 + 语义归组）：
-
-```powershell
-.\scripts\test_grouping_e2e.ps1
-```
-
-本地规则模式设置 `LLM_PROVIDER=heuristic`。`LLM_API_KEY` 是本地凭据，提交的示例中应留空。
-`.env.example` 已列出 `GROUPING_*` 与注释掉的 `LLM_*`。
-普通 Compose 通过 `.env` 向服务传值；Demo Compose 将这些键传给控制器，分析子进程继承配置。
-
-修改源码或配置后，按正在使用的模式执行：
-
-```powershell
-# 普通项目服务
-docker compose up --build -d --wait --force-recreate ai api worker
-
-# 独立 Demo（Windows）
-.\scripts\start_midterm_demo.ps1
-```
-
-macOS/Linux 的 Demo 使用
-`docker compose -f compose.midterm.yaml up --build -d --wait --force-recreate midterm-demo`。
-Demo 重启后重新提交一轮评论。
-
-| 配置或信号 | 当前行为 |
-| --- | --- |
-| 来源 | 模型结果为 `llm`，规则结果为 `heuristic` |
-| 回退 | `fallback_reason` 保存 `no_api_key`、`timeout`、`auth_error`、`rate_limited`、`schema_violation` 等原因 |
-| 保存 | 来源和原因存入 `AnalysisRun.output_json`，由评论详情和 Demo 尝试记录展示 |
-| 模型超时 | 可配置，默认 8 秒；Demo 转发等待 15 秒，Worker 等待 22 秒，其中包含 3 秒演示延迟 |
-| 日志 | AI 日志中的 `llm_fallback`；Demo 日志位于 `/tmp/midterm-ai.log` |
-
-已分类模型故障触发规则，回退成功后返回有效分析响应。只有继续传到 Worker 的错误才进入任务重试，
-例如 Demo 注入的 HTTP 503。提供方返回 HTTP 429 时，当前处理为规则回退。
-
-按运行模式选一条命令检查配置，输出仅含提供方、模型名和超时：
-
-```bash
-docker compose exec ai python -c "from services.common.config import get_settings; s=get_settings(); print(s.llm_provider, s.llm_model, s.llm_timeout_seconds)"
-docker compose -f compose.midterm.yaml exec midterm-demo python -c "from services.common.config import get_settings; s=get_settings(); print(s.llm_provider, s.llm_model, s.llm_timeout_seconds)"
-```
-
-十例 Demo 检查会断言 `rule-baseline-2`，运行前设置 `LLM_PROVIDER=heuristic` 并重建 Demo。
-已有测试数字对应较早的规则模式运行；专门的适配器／回退模拟测试、审核写入测试和模型标注评测集仍待补充。

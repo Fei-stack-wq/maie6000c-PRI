@@ -2,176 +2,90 @@
 
 ## English
 
-### Start the product UI
+### Run the product
 
-On Windows, start Docker Desktop, then run ` .\scripts\start_product_ui.ps1 ` from the repository root. Open <http://localhost:8000/ui/>. Choose a UTF-8 CSV and upload it; processing runs automatically. For macOS/Linux use `docker compose up -d --build --wait` after creating `.env` from `.env.example`. Existing `.env` settings are kept.
-
-The review page is read-only until human-action APIs are available. [Frontend guide](frontend/README.md)
-
-### Start the midterm demo
-
-Start Docker Desktop and open a terminal in the repository root.
+Start Docker Desktop, then run from the repository root:
 
 ```powershell
-# Windows
-.\scripts\start_midterm_demo.ps1
+.\scripts\start_product_ui.ps1
 ```
 
-```bash
-# macOS / Linux
-docker compose -f compose.midterm.yaml up --build -d --wait
-```
+Open <http://localhost:8000/ui/>. The script keeps an existing `.env`, builds the services and applies migrations through `20261121_0006`. The first AI build installs a CPU sentence model and downloads its weights, so it takes longer than a rule-only build. Keep Docker Desktop running.
 
-Open **[English demo](http://localhost:18717/en)** or [Chinese demo](http://localhost:18717/zh).
-See the [demo run instructions](demo/midterm/README.md) for downloads, operation and shutdown.
-The default rule mode starts without a model key. Model mode reads local `LLM_*` settings.
-The first build downloads dependencies. See [AI configuration](docs/operations.md#7-ai-configuration).
+Upload a UTF-8 review CSV, follow the batch progress, inspect comments and issue evidence, then accept/reject associations and follow up issues. Review decisions, notes and history are saved in PostgreSQL. Accepting an association does not automatically confirm or resolve its issue.
 
-### Project and current scope
-
-We are building a tool to collect product reviews, identify concrete issues with source evidence,
-and organise candidate issue groups for staff review. The planned product includes semantic grouping
-and review/follow-up actions. These are still under development.
-
-The current working path is:
-
-**Submit review → save review and job → background analysis → verify evidence → save and display results.**
-
-| Part | Current status |
+| Part | Integrated implementation |
 | --- | --- |
-| R1: ingestion and queries | CSV text / JSON input, row validation, deduplication, revisions, jobs and read APIs are implemented |
-| R2: background processing | Claiming, bounded retries, expired-job recovery, protected writes, evidence checks and metrics are implemented |
-| R3: analysis | Model extraction, Chinese/English rule fallback and source tracking are implemented; semantic grouping and labelled evaluation remain |
-| R4: product frontend | CSV upload, live progress, comment/issue queries and read-only review evidence are connected; review-write APIs remain |
-| Midterm demo | A separate Chinese/English page calls the existing backend and demonstrates persisted results and retry behaviour |
+| Input | CSV/JSON validation, deduplication, revisions, batch lists and errors |
+| Worker | Claims, bounded job retries, expired-claim recovery, evidence checks and protected saves |
+| Analysis | Hosted model extraction (up to three attempts), marked rule fallback, local MiniLM semantic grouping |
+| Workbench | Live upload, comments, issue groups, human decisions, manual evidence, reassign, recheck, follow-up, merge/split |
+| Identity | Explicit local demo identity or named reviewer/viewer sessions |
 
-The demo is a Week 07 presentation interface, not a replacement for the team frontend.
-The language pages share one round. Reviews and evidence remain in their original language;
-analysis supports model mode, rule mode and marked rule fallback. The attempt history displays the source.
-The system does not determine product defects, liability or root causes, or act on the source platform.
+Local defaults use demo identity and write real data. Named accounts and deployment settings are documented in [human review](docs/human-review.md). Production identity requires session mode and HTTPS.
 
-**Analysis limits:** The rules cover selected expressions in quality, delivery, description mismatch
-and usability. Warranty refusal, after-sales service and other unsupported wording can be missed;
-`no` or `unknown` is not proof that the review contains no complaint. The demo shows processing,
-retry and result storage. It has not established accuracy across unrestricted reviews.
+The model Key remains in ignored local `.env`. Semantic grouping uses a separate local model and needs no additional provider Key. Missing model configuration uses rules immediately; configured model failures receive at most two retries before rule fallback. These are separate from Worker job retries.
 
-### Repository guide
+Existing completed reviews are not regrouped simply by restarting or uploading identical CSV. Use a separate test database for a fresh comparison. Grouping remains a suggestion; analysis and similarity scores are not proof of a product defect. The extractor currently allows at most one issue per category per review.
 
-| Location | Contents |
-| --- | --- |
-| `services/api/app/` | Review ingestion and queries |
-| `services/worker/app/` | Background job processing |
-| `services/ai/app/` | Internal model/rule analysis service |
-| `services/common/`, `alembic/` | Shared data models, request/response definitions and database migrations |
-| `frontend/` | Live product frontend; original mock preview retained |
-| `demo/midterm/`, `compose.midterm.yaml` | Standalone midterm demo and its own database |
-| `tests/`, `scripts/` | Tests and operating scripts |
-| `docs/`, `review/` | Current documentation and earlier design/review material |
+### Documentation and previews
 
-Python 3.11, FastAPI, SQLAlchemy, Alembic and PostgreSQL 16 form the backend.
-Worker-to-analysis calls use HTTP; Prometheus metrics and structured logs support checks.
+- [Operations](docs/operations.md): configuration, startup, identity, monitoring and tests.
+- [Architecture](docs/architecture.md): data flow and AI Integration Card.
+- [Human review](docs/human-review.md): decisions, evidence, concurrency and workflow contracts.
+- [Frontend](frontend/README.md): routes and using the integrated workbench.
+- [Progress](docs/progress.md): integrated state and verification scope.
+- [Week 07 record](templates/submissions/week07/README.md): historical midterm material.
 
-### Documentation
+The original static design is retained at `/ui/legacy/`; `/ui/mock.html` forwards there. The previous read-only frontend is archived at `/ui/previous/`. Only the integrated workbench is the default entry.
 
-- [Week 07 submission](templates/submissions/week07/README.md): demonstrated work, evidence, remaining work and known limitations.
-- [Architecture](docs/architecture.md): components, data flow and implementation decisions.
-- [Operations](docs/operations.md): demo/full-project startup, monitoring, troubleshooting and tests.
-- [Progress](docs/progress.md): current implementation status and next steps.
-- [R2 implementation](docs/r2-implementation.md), [execution chain](docs/r2-logic-chain.md) and [flowchart](docs/r2-flowchart.md).
+The separate bilingual midterm demo remains available via ` .\scripts\start_midterm_demo.ps1 ` at <http://localhost:18717/en> and <http://localhost:18717/zh>, using its own database.
 
-### Full project and tests
+### AI use
 
-To run the original services and frontend instead of the midterm demo, follow
-[Operations](docs/operations.md). Its UI is at `http://localhost:8000/ui/` and reads the real API.
-
-For a quick check of the running midterm demo, leave it idle and run
-` .\scripts\start_midterm_demo.ps1 -Action check ` on Windows.
-The complete R2 test environment is started by ` .\scripts\test_r2.ps1 `.
-Recorded results and their conditions are in the [verification record](templates/submissions/week07/assets/verification.md).
+We used ChatGPT to improve and polish the documentation and to assist with code scaffolding and testing.
 
 ## 中文
 
-### 启动产品前端
+### 运行产品
 
-Windows 先启动 Docker Desktop，再在仓库根目录运行 ` .\scripts\start_product_ui.ps1 `。打开 <http://localhost:8000/ui/>，选择 UTF-8 CSV 并上传，后台会自动分析。macOS/Linux 首次从 `.env.example` 创建 `.env` 后运行 `docker compose up -d --build --wait`。已有 `.env` 配置会保留。
-
-人工复核接口完成前，复核页面只读。[前端说明](frontend/README.md)
-
-### 启动期中 Demo
-
-启动 Docker Desktop，在仓库根目录打开终端。
+先启动 Docker Desktop，在仓库根目录运行：
 
 ```powershell
-# Windows
-.\scripts\start_midterm_demo.ps1
+.\scripts\start_product_ui.ps1
 ```
 
-```bash
-# macOS / Linux
-docker compose -f compose.midterm.yaml up --build -d --wait
-```
+打开 <http://localhost:8000/ui/>。脚本保留已有 `.env`，构建服务并迁移数据库到 `20261121_0006`。首次构建 AI 服务需要安装 CPU 语义模型并下载权重，会比纯规则版更久。运行时保持 Docker Desktop 开启。
 
-打开 **[英文版 Demo](http://localhost:18717/en)** 或 [中文版 Demo](http://localhost:18717/zh)。
-下载、操作和停止方法见 [Demo 运行说明](demo/midterm/README.md)。
-默认规则模式无需模型密钥。模型模式读取本地 `LLM_*` 配置，首次构建会下载依赖。
-配置方法见[模型配置](docs/operations.md#7-ai-configuration)。
+上传 UTF-8 评论 CSV，查看批次进度、评论和问题证据，再接受／拒绝关联并跟进问题。复核决定、备注和历史保存在 PostgreSQL。接受关联不自动确认或解决整个问题组。
 
-### 项目与当前范围
-
-我们正在开发一个商品评论整理工具：集中接收评论，提取具体问题和原文证据，
-建立候选问题组，供工作人员复核。完整产品计划加入语义归组和人工复核、跟进功能，
-这些内容仍在开发中。
-
-当前已经接通的流程是：
-
-**提交评论 → 保存评论和任务 → 后台分析 → 校验证据 → 保存并展示结果。**
-
-| 部分 | 当前状态 |
+| 部分 | 整合后的实现 |
 | --- | --- |
-| R1 数据接入与查询 | 已实现 CSV 文本／JSON 输入、逐行校验、去重、版本记录、建任务和查询接口 |
-| R2 后台处理 | 已实现任务领取、有限重试、过期回收、受保护的结果保存、证据检查和指标 |
-| R3 分析 | 已接入模型提取、中英文规则回退和来源记录；语义归组和标注评测待完成 |
-| R4 产品前端 | 已接 CSV 上传、实时进度、评论／问题查询和只读复核证据；复核写接口待完成 |
-| 期中 Demo | 独立中英文页面连接现有后台，展示结果保存与失败重试 |
+| 接入 | CSV／JSON 校验、去重、正文版本、批次列表和错误行 |
+| Worker | 领取、有限任务重试、过期回收、证据检查及受保护保存 |
+| 分析 | 外部大模型提取（最多三次尝试）、明确标记的规则回退、本地 MiniLM 语义归组 |
+| 工作台 | 真实上传、评论、问题组、人工决定、人工证据、改归组、重核、跟进和合并／拆分 |
+| 身份 | 明确的本地演示身份，或具名复核员／只读成员会话 |
 
-Demo 仅用于 Week 07 展示，不替代组员的产品前端。两种语言页面共用同一轮演示。
-评论与证据保持原语言；支持模型、规则和带原因的规则回退，尝试记录展示结果来源。
-系统不判定产品缺陷、责任或根因，也不向来源平台执行操作。
+本地默认使用演示身份，操作会写入真实数据库。具名账号及部署配置见[人工复核说明](docs/human-review.md)。正式身份使用会话模式和 HTTPS。
 
-**分析边界：** 规则只覆盖质量、物流、描述不符和使用体验中的部分表达。
-拒绝保修、售后服务及其他未覆盖说法可能漏检；`no` 或 `unknown` 不代表评论确实没有投诉。
-Demo 展示处理、重试和结果保存，尚未验证对任意评论的识别准确率。
+模型 Key 仍保存在已忽略的本地 `.env`。语义归组使用独立本地模型，不需要额外的外部 Key。缺少模型配置时立即使用规则；模型已配置但处理失败时，最多重试两次后回退规则。这与 Worker 的任务重试分开计数。
 
-### 仓库内容
+已有评论不会因重启或重复上传相同 CSV 自动重新归组。新旧效果比较应使用独立测试数据库。归组仍是建议，分析和相似度不构成商品缺陷证明；提取器目前每条评论每个类别最多提取一个问题。
 
-| 位置 | 内容 |
-| --- | --- |
-| `services/api/app/` | 评论导入与查询 |
-| `services/worker/app/` | 后台任务处理 |
-| `services/ai/app/` | 内部模型／规则分析服务 |
-| `services/common/`、`alembic/` | 共享数据模型、输入输出格式和数据库迁移 |
-| `frontend/` | 真实接口前端；保留原静态设计预览 |
-| `demo/midterm/`、`compose.midterm.yaml` | 独立期中 Demo 及其数据库 |
-| `tests/`、`scripts/` | 测试和运行脚本 |
-| `docs/`、`review/` | 当前说明与早期设计、评审材料 |
+### 文档与预览
 
-后台使用 Python 3.11、FastAPI、SQLAlchemy、Alembic 和 PostgreSQL 16。
-Worker 通过 HTTP 调用分析服务，使用 Prometheus 指标和结构化日志检查运行情况。
+- [运行说明](docs/operations.md)：配置、启动、身份、监控和测试。
+- [系统架构](docs/architecture.md)：数据流与 AI 接入卡片。
+- [人工复核](docs/human-review.md)：决定、证据、并发与流程契约。
+- [前端说明](frontend/README.md)：整合工作台的页面和用法。
+- [开发进度](docs/progress.md)：整合状态与验证范围。
+- [Week 07 记录](templates/submissions/week07/README.md)：历史期中材料。
 
-### 文档入口
+原静态设计保留在 `/ui/legacy/`，`/ui/mock.html` 跳转至该预览。上次只读前端归档在 `/ui/previous/`。默认入口只运行整合工作台。
 
-- [Week 07 提交说明](templates/submissions/week07/README.md)：本次成果、证据、待完成内容和已知限制。
-- [系统架构](docs/architecture.md)：组件、数据流和实现选择。
-- [运行说明](docs/operations.md)：Demo／原项目启动、监控、排查与测试。
-- [当前进度](docs/progress.md)：当前实现状态和后续工作。
-- [R2 实现](docs/r2-implementation.md)、[运行链条](docs/r2-logic-chain.md)与[流程图](docs/r2-flowchart.md)。
+独立双语期中 Demo 仍通过 ` .\scripts\start_midterm_demo.ps1 ` 启动，地址为 <http://localhost:18717/en> 和 <http://localhost:18717/zh>，使用独立数据库。
 
-### 原项目与测试
+### AI 使用说明
 
-运行原项目服务和前端的方法见 [运行说明](docs/operations.md)。
-原前端地址为 `http://localhost:8000/ui/`，已读取真实接口。
-
-检查已启动的期中 Demo 时，先让页面空闲，再在 Windows 执行
-` .\scripts\start_midterm_demo.ps1 -Action check `。
-完整 R2 测试环境通过 ` .\scripts\test_r2.ps1 ` 启动。
-已执行的结果及条件见 [验证记录](templates/submissions/week07/assets/verification.md)。
+我们使用 ChatGPT 完善和润色文档说明，并辅助进行代码框架构造和测试。
