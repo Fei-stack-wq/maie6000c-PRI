@@ -13,6 +13,7 @@ Date: 26 November 2026. Branch: `integrate_v1`. Sources: local frontend/model co
 | Real semantic model | MiniLM sentence_transformers backend loaded successfully; 3 HTTP/Worker/PostgreSQL grouping smoke tests passed |
 | Authenticated workflow | One live reviewer/viewer test passed: login, idempotent CSV import, acceptance, confirm/follow-up/resolve/reopen, manual evidence, changed-source recheck, viewer write denial |
 | Browser | Uploaded 10 CSV rows; all completed. Accepted an association, confirmed its issue and reloaded; decisions and notes persisted |
+| Final default startup | PowerShell 5.1 startup completed; all four services healthy, migration head 20261121_0006, original 61 reviews retained and sentence_transformers backend verified |
 | Independent demo | All 10 Chinese/English normal/no/unknown/retry/final-failure cases passed, with evidence, database and metrics assertions |
 
 One merge regression was caught before completion: Worker category-lock calls did not match human regrouping's shared ordering. The integrated code prepares remote hints before write locks, acquires category locks once in a shared sorted order, then preserves human decisions and advances review versions. The full concurrency suite passed after the fix.
@@ -34,6 +35,7 @@ The original database was backed up outside the repository before the default st
 | 真实语义模型 | MiniLM sentence_transformers 后端成功加载；3 项真实 HTTP／Worker／数据库归组冒烟测试通过 |
 | 账号流程 | 1 项具名复核员／只读成员验收通过：登录、幂等导入、接受、确认／跟进／解决／重开、人工证据、原文变化重核、只读禁止写入 |
 | 浏览器 | 上传 10 条 CSV 并全部完成；接受关联、确认问题、刷新后决定与备注仍保留 |
+| 最终默认启动 | PowerShell 5.1 启动完成，四个服务健康；迁移为 20261121_0006，原 61 条评论保留，sentence_transformers 后端确认可用 |
 | 独立 Demo | 10 项中英文正常／无问题／未知／重试／最终失败场景通过，验证证据、数据库和运行指标 |
 
 合并检查捕获过一个问题：Worker 的类别锁调用方式与人工改归组的共享锁顺序不一致。现已在写锁之前准备远程建议，一次性按共享顺序获取类别锁，保留人工决定并推进复核版本。修正后完整并发测试通过。
