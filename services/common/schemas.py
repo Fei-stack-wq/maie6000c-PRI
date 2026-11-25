@@ -394,13 +394,36 @@ class GroupingAction(StrEnum):
     CREATE_NEW = "create_new"
 
 
+class ExistingIssueRef(BaseModel):
+    """Candidate issue text for same-product semantic grouping."""
+
+    id: str = Field(min_length=1, max_length=36)
+    title: str = Field(default="", max_length=120)
+    description: str = Field(default="", max_length=500)
+
+
 class GroupSuggestionRequest(BaseModel):
     """Same-product grouping hint; the Worker still applies it transactionally."""
 
     product_id: str
     category_id: str
     candidate_text: str = Field(min_length=1, max_length=500)
+    existing_issues: list[ExistingIssueRef] = Field(default_factory=list)
     existing_issue_ids: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _merge_legacy_ids(self) -> "GroupSuggestionRequest":
+        known = {item.id for item in self.existing_issues}
+        extras = [
+            ExistingIssueRef(id=issue_id, title="", description="")
+            for issue_id in self.existing_issue_ids
+            if issue_id not in known
+        ]
+        if extras:
+            self.existing_issues = list(self.existing_issues) + extras
+        if not self.existing_issue_ids and self.existing_issues:
+            self.existing_issue_ids = [item.id for item in self.existing_issues]
+        return self
 
 
 class GroupSuggestionResult(BaseModel):

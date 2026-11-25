@@ -7,7 +7,8 @@ processing, orange retry/failure, purple changed input, and grey adjacent servic
 Arrows describe processing order, including HTTP and separate reads, rather than only direct
 Python calls. Repeated names mark different call sites. The final `run_once()` means the next poll.
 Recovery decisions stay inside `recover_stale_jobs()`; grouping and human-decision protection
-stay inside `save_issue_links()`. Current grouping is category-based. The original product UI
+stay inside `save_issue_links()`. Worker calls `/suggest-groups` for in-category semantic hints
+and falls back to the earliest same-category group on failure. The original product UI
 is not connected; the midterm demo reads persisted results separately.
 
 [English Mermaid source](r2-flowchart.en.mmd). The saved
@@ -100,7 +101,7 @@ flowchart TB
 - 同名函数在不同位置重复出现，表示不同调用时点，不是多份实现。
 - 为便于看清业务主线，省略了配置、日志、数据库会话等基础代码，以及只转发调用的两个 main 包装函数。
 - 任务过期与次数用尽的回收决策位于 jobs.py.recover_stale_jobs() 内部；分组锁、旧建议失效标记和人工结论保护位于 jobs.py.save_issue_links() 内部。
-- 类别归组仍为当前基线；图中不表示已经完成语义归组或原项目的前端接入。
+- Worker 在同类范围内调用 `/suggest-groups` 做语义建议；调用失败时回退为类别基线（最早一组）。图中不表示产品前端真数据或人工复核写入已完成。
 
 最下方的 `worker/main.py.run_once()` 表示回到下一轮，省略跨越全图的回线。
 

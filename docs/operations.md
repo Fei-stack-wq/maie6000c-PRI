@@ -130,11 +130,40 @@ LLM_API_KEY=YOUR_LOCAL_KEY
 LLM_API_KEY_HEADER=api-key
 LLM_TIMEOUT_SECONDS=8
 LLM_PROMPT_VERSION=review-extraction-v1
+
+# Semantic grouping (Compose AI image installs sentence-transformers; deliverable backend).
+GROUPING_ENABLED=true
+GROUPING_SIMILARITY_THRESHOLD=0.35
+GROUPING_OVERLAP_THRESHOLD=0.55
+GROUPING_TOP2_MARGIN=0.08
+GROUPING_KEYWORD_GATE=true
+GROUPING_EMBEDDING_BACKEND=sentence_transformers
+GROUPING_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+```
+
+Deliverable Compose builds the **ai** service with `INSTALL_GROUPING=1` (MiniLM).
+api/worker stay on the slim image. Dual thresholds **T_main=0.35 / T_high=0.55**
+(`GROUPING_OVERLAP_THRESHOLD` = T_high bypass) plus **top2_margin=0.08** were locked on
+2026-11-22 on `pairs_calib.jsonl` (≈0.84) **without** synonym alias clusters; held-out
+`pairs_test.jsonl` ≈0.77. Handwritten `pairs.jsonl` is smoke only (see `EVAL_NOTES.md`). Re-score with:
+
+```powershell
+python -m scripts.eval_grouping --backend sentence_transformers --pairs data/grouping_eval/pairs_calib.jsonl
+python -m scripts.eval_grouping --backend sentence_transformers --pairs data/grouping_eval/pairs_test.jsonl --fixed-t-main 0.35 --fixed-t-overlap 0.55 --fixed-top2-margin 0.08
+```
+
+Worker records `/suggest-groups` latency in Prometheus as `worker_grouping_request_seconds`
+and attaches `grouping_hints` (including fallback reasons) on `AnalysisRun.output_json`.
+
+Hashing remains only for offline/CI unit tests without model weights — not the deliverable path.
+Full-stack acceptance (extract + semantic grouping):
+
+```powershell
+.\scripts\test_grouping_e2e.ps1
 ```
 
 Use `LLM_PROVIDER=heuristic` for local rule mode. `LLM_API_KEY` is a local credential;
-keep it out of committed examples. These are supported settings in `config.py`; the current
-`.env.example` does not yet list the `LLM_*` keys, so add them locally when enabling model mode.
+keep it out of committed examples. `.env.example` lists `GROUPING_*` and commented `LLM_*`.
 The ordinary Compose passes `.env` into its services; the demo Compose passes these keys to the
 controller, whose analysis child process inherits them.
 
@@ -297,10 +326,38 @@ LLM_API_KEY=YOUR_LOCAL_KEY
 LLM_API_KEY_HEADER=api-key
 LLM_TIMEOUT_SECONDS=8
 LLM_PROMPT_VERSION=review-extraction-v1
+
+# 语义归组（Compose 的 AI 镜像安装 sentence-transformers；交付后端）
+GROUPING_ENABLED=true
+GROUPING_SIMILARITY_THRESHOLD=0.35
+GROUPING_OVERLAP_THRESHOLD=0.55
+GROUPING_TOP2_MARGIN=0.08
+GROUPING_KEYWORD_GATE=true
+GROUPING_EMBEDDING_BACKEND=sentence_transformers
+GROUPING_EMBEDDING_MODEL=sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+```
+
+交付 Compose 仅为 **ai** 服务设置 `INSTALL_GROUPING=1`（MiniLM）；api／worker 保持瘦镜像。
+双阈值 **T_main=0.35 / T_high=0.55**（`GROUPING_OVERLAP_THRESHOLD` 即无关键词旁路阈值）与
+**top2_margin=0.08** 于 2026-11-22 在校准集 `pairs_calib.jsonl` 上锁定（≈0.84，**无**同义别名簇），
+held-out `pairs_test.jsonl` ≈0.77。手写 `pairs.jsonl` 仅冒烟（见 `EVAL_NOTES.md`）。重测：
+
+```powershell
+python -m scripts.eval_grouping --backend sentence_transformers --pairs data/grouping_eval/pairs_calib.jsonl
+python -m scripts.eval_grouping --backend sentence_transformers --pairs data/grouping_eval/pairs_test.jsonl --fixed-t-main 0.35 --fixed-t-overlap 0.55 --fixed-top2-margin 0.08
+```
+
+Worker 将 `/suggest-groups` 耗时记入 `worker_grouping_request_seconds`，并在
+`AnalysisRun.output_json.grouping_hints` 写入回退原因。
+
+hashing 仅用于无模型权重的本机／CI 单测，不算交付语义路径。全栈验收（提取 + 语义归组）：
+
+```powershell
+.\scripts\test_grouping_e2e.ps1
 ```
 
 本地规则模式设置 `LLM_PROVIDER=heuristic`。`LLM_API_KEY` 是本地凭据，提交的示例中应留空。
-这些配置已由 `config.py` 支持；当前 `.env.example` 尚未列出 `LLM_*`，启用模型时需在本地添加。
+`.env.example` 已列出 `GROUPING_*` 与注释掉的 `LLM_*`。
 普通 Compose 通过 `.env` 向服务传值；Demo Compose 将这些键传给控制器，分析子进程继承配置。
 
 修改源码或配置后，按正在使用的模式执行：

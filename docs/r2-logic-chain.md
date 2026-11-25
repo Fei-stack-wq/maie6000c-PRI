@@ -160,7 +160,7 @@ the new text. If execution was interrupted after R1 marked the new text queued,
 
 `jobs.py.save_issue_links()` 先通过 `jobs.py._group_lock()`，让同一范围内的并发建组按顺序进行，再通过 `jobs.py._supersede_suggestions()` 标记未人工处理的旧 AI 建议失效。接着，它查询同平台、同店铺、同商品、同类别的有效问题组：找到就复用，没有就创建候选组，并保存评论与问题组之间的原文证据。
 
-**当前归组仍是类别基线，没有比较问题描述的语义，也没有调用分组建议接口。** 后续 R3 可以改进归组判断，R2 继续负责安全保存。
+**当前 Worker 会调用 `/suggest-groups` 做类内语义建议（Compose 交付为 MiniLM + 关键词闸 + 双阈值 T_main 0.35 / T_high 0.55 + top2 分差 0.08）；调用失败时回退为同类最早一组。** R2 继续负责安全保存与人工结论保护。
 
 如果已有的评论关联被人工接受、拒绝、手动建立，或者已经有人工决定信息，`jobs.py.save_issue_links()` 会保留这些决定和证据；AI 只能更新尚待人工处理的建议。
 

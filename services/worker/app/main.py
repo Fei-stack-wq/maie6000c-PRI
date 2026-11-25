@@ -55,7 +55,14 @@ def process_job(claim: JobClaim) -> str:
                 "count": verified.invalid_evidence_count,
             })
         with factory() as db:
-            outcome = jobs.complete_job(db, claim, snapshot, verified, latency_ms)
+            suggest_url = (
+                shared.ai_service_url if shared.grouping_enabled else None
+            )
+            outcome = jobs.complete_job(
+                db, claim, snapshot, verified, latency_ms,
+                ai_service_url=suggest_url,
+                request_timeout_seconds=shared.worker_request_timeout_seconds,
+            )
     except Exception as exc:  # noqa: BLE001 - attempt boundary
         failure = classify_error(exc)
         logger.warning("job_attempt_failed", extra={

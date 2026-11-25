@@ -32,10 +32,11 @@ write. If text changed, the old result is recorded as discarded/failed with `inp
 current input gets a new budget. Otherwise the analysis, issue links, comment result and completed
 job commit together. Exceptions roll back partial writes.
 
-Groups currently use platform/shop/product/category, with PostgreSQL advisory locks to avoid
-concurrent duplicate groups. This is a category baseline, not semantic grouping.
-Unreviewed AI suggestions can be replaced; accepted/rejected, human-created or decided links
-are preserved. Old superseded suggestions are not counted as current suggestions.
+Groups are scoped by platform/shop/product/category. Worker calls `/suggest-groups` for a
+semantic hint, then takes an advisory lock and re-reads candidates before writing; on hint
+failure it reuses the earliest same-category group (category baseline). Unreviewed AI
+suggestions can be replaced; accepted/rejected, human-created or decided links are preserved.
+Old superseded suggestions are not counted as current suggestions.
 
 ### 3. Retry and recovery
 
@@ -82,7 +83,7 @@ Manual retry/recover APIs, persistent manual job-operation audit and batch repla
 `python -m scripts.recover_stale_jobs` only recovers expired/exhausted active work under the existing
 rules; it does not restart terminal failed jobs. R4 must protect concurrent review writes when its
 write endpoints are added. Model extraction is connected through `run_extraction()`; semantic
-grouping and labelled evaluation remain. Expected provider failures return marked rule fallback,
+grouping with MiniLM and calib/test evaluation sets are in place. Expected provider failures return marked rule fallback,
 while errors reaching the Worker use the retry table above.
 
 ## 中文
@@ -116,9 +117,10 @@ Worker 读取固定输入后结束数据库会话，在不持锁的情况下发�
 保存旧结果被丢弃／失败的记录，再为当前输入重新分配预算。
 输入未变时，分析、问题关联、评论结果和任务完成一起提交；中间异常回滚部分写入。
 
-当前按平台／店铺／商品／类别归组，使用 PostgreSQL advisory lock 防止并发重复建组，
-这仍是类别基线，不是语义归组。未经人工处理的 AI 建议可以更新；已接受、已拒绝、
-人工建立或已有决定信息的关联保留，失效建议不计入当前建议数。
+归组范围仍是平台／店铺／商品／类别。Worker 先调用 `/suggest-groups` 取得语义建议，
+再加 advisory lock 并重读候选后写入；建议失败时回退为同类最早一组（类别基线）。
+未经人工处理的 AI 建议可以更新；已接受、已拒绝、人工建立或已有决定信息的关联保留，
+失效建议不计入当前建议数。
 
 ### 3. 重试与回收
 
@@ -162,4 +164,4 @@ R1 在中断期间更新正文时，回收保留新输入的执行机会。
 人工 retry/recover API、持久化人工任务操作审计和批量重放尚未实现。
 `python -m scripts.recover_stale_jobs` 只按现有规则处理过期／次数用尽的活跃任务，
 不会重新执行最终失败任务。R4 加入写接口时仍需保护并发人工决定。模型提取已通过 `run_extraction()` 接入，
-语义归组和标注评测待完成。已分类提供方故障返回带标记的规则回退；继续传到 Worker 的错误按上表重试。
+MiniLM 语义归组与校准／测试评测集已接入。已分类提供方故障返回带标记的规则回退；继续传到 Worker 的错误按上表重试。
