@@ -67,7 +67,8 @@ def targets(db, source_id, query, limit, offset):
         conflict("no_active_links")
     stmt = select(Issue).where(
         Issue.id != source.id, Issue.platform == source.platform, Issue.shop_id == source.shop_id,
-        Issue.product_id == source.product_id, Issue.merged_into_id.is_(None),
+        Issue.product_id == source.product_id, Issue.batch_id == source.batch_id,
+        Issue.merged_into_id.is_(None),
         Issue.status.in_(["proposed", "confirmed"]),
     )
     if query.strip():
@@ -163,6 +164,8 @@ def restructure(db, source_id, payload, operator, operation):
         conflict("scope_mismatch")
     if merging:
         target = groups[payload.target_issue_id]
+        if target.batch_id != source.batch_id:
+            conflict("scope_mismatch")
         target_rows = rows_by_id[target.id]
         if payload.expected_target_token != issue_token(target, target_rows):
             conflict("target_changed")
@@ -177,7 +180,7 @@ def restructure(db, source_id, payload, operator, operation):
             conflict("split_requires_subset")
         candidates = db.execute(select(Issue).where(
             Issue.platform == source.platform, Issue.shop_id == source.shop_id,
-            Issue.product_id == source.product_id,
+            Issue.product_id == source.product_id, Issue.batch_id == source.batch_id,
             Issue.category_id == payload.new_issue.category_id,
             Issue.status.in_(["proposed", "confirmed"]), Issue.merged_into_id.is_(None),
         )).scalars().all()
@@ -186,7 +189,7 @@ def restructure(db, source_id, payload, operator, operation):
             conflict("duplicate_issue")
         target = Issue(
             platform=source.platform, shop_id=source.shop_id, product_id=source.product_id,
-            category_id=payload.new_issue.category_id,
+            batch_id=source.batch_id, category_id=payload.new_issue.category_id,
             title=" ".join(payload.new_issue.title.split()),
             status="proposed", created_by="human", split_from_id=source.id,
         )

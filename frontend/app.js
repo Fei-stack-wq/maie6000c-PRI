@@ -5,33 +5,33 @@
   var ROUTE_META = {
     batches: {
       hash: '#/batches',
-      title: '批次上传',
+      title: I18n.t('批次上传'),
       kicker: 'INGESTION',
-      subtitle: '真实上传 · 校验 CSV、查看分析进度并进入复核。'
+      subtitle: I18n.t('真实上传 · 校验 CSV、查看分析进度并进入复核。')
     },
     comments: {
       hash: '#/comments',
-      title: '评论',
+      title: I18n.t('评论'),
       kicker: 'COMMENTS',
-      subtitle: '真实数据 · 查看原文和分析结果，进入证据复核。'
+      subtitle: I18n.t('真实数据 · 查看原文和分析结果，进入证据复核。')
     },
     issues: {
       hash: '#/issues',
-      title: '问题组',
+      title: I18n.t('问题组'),
       kicker: 'ISSUE GROUPS',
-      subtitle: '真实数据 · 核对当前证据，确认问题并记录跟进。'
+      subtitle: I18n.t('真实数据 · 核对当前证据，确认问题并记录跟进。')
     },
     reviews: {
       hash: '#/reviews',
-      title: '人工复核',
+      title: I18n.t('人工复核'),
       kicker: 'HUMAN REVIEW',
-      subtitle: '真实数据 · 核对原文，保存接受／拒绝决定及操作历史。'
+      subtitle: I18n.t('真实数据 · 核对原文，保存接受／拒绝决定及操作历史。')
     },
     about: {
       hash: '#/about',
-      title: '关于',
+      title: I18n.t('关于'),
       kicker: 'ABOUT',
-      subtitle: '商品评论管理与重复问题发现系统 · 初步前端界面。'
+      subtitle: I18n.t('商品评论管理与重复问题发现系统 · 初步前端界面。')
     }
   };
 
@@ -70,7 +70,7 @@
     pageTitle.textContent = meta.title;
     pageKicker.textContent = meta.kicker;
     pageSubtitle.textContent = meta.subtitle;
-    document.title = meta.title + ' · ReviewLens 评论洞察';
+    document.title = meta.title + I18n.t(' · ReviewLens 评论洞察');
 
     navLinks.forEach(function (link) {
       var isActive = link.getAttribute('data-route') === route;
@@ -85,12 +85,12 @@
 
   function renderAbout() {
     var endpoints = [
-      { method: 'POST', path: '/review-batches', desc: '创建评论批次，返回 202 与 batch_id' },
-      { method: 'GET', path: '/review-batches/{id}', desc: '批次进度、行级计数与分析覆盖率' },
-      { method: 'GET', path: '/comments', desc: '评论列表，支持商品 / 状态 / has_issue 筛选' },
-      { method: 'GET', path: '/review-issues', desc: '问题组列表、有效证据与人工状态' },
-      { method: 'GET', path: '/review-batches', desc: '真实批次列表、平台筛选与分页' },
-      { method: 'GET', path: '/docs', desc: 'Swagger / OpenAPI 交互文档' }
+      { method: 'POST', path: '/review-batches', desc: I18n.t('创建评论批次，返回 202 与 batch_id') },
+      { method: 'GET', path: '/review-batches/{id}', desc: I18n.t('批次进度、行级计数与分析覆盖率') },
+      { method: 'GET', path: '/comments', desc: I18n.t('评论列表，支持商品 / 状态 / has_issue 筛选') },
+      { method: 'GET', path: '/review-issues', desc: I18n.t('问题组列表、有效证据与人工状态') },
+      { method: 'GET', path: '/review-batches', desc: I18n.t('真实批次列表、平台筛选与分页') },
+      { method: 'GET', path: '/docs', desc: I18n.t('Swagger / OpenAPI 交互文档') }
     ];
 
     var team = [
@@ -122,19 +122,19 @@
         '<section class="about-hero">' +
           '<div class="about-hero-copy">' +
             '<p class="eyebrow">ABOUT REVIEWLENS</p>' +
-            '<h2>把零散评论，整理成可复核的问题线索。</h2>' +
-            '<p>系统面向选定平台的电商商家：集中接收商品评论，由 AI 提取具体问题并归组，再由人工确认、驳回和跟进。AI 只提供线索，不判定产品缺陷、责任或根因。</p>' +
+            I18n.t('<h2>把零散评论，整理成可复核的问题线索。</h2>') +
+            I18n.t('<p>系统面向选定平台的电商商家：集中接收商品评论，由 AI 提取具体问题并归组，再由人工确认、驳回和跟进。AI 只提供线索，不判定产品缺陷、责任或根因。</p>') +
             '<div class="about-tags">' +
-              '<span>单平台首版</span>' +
-              '<span>AI 线索 + 人工判断</span>' +
-              '<span>证据可追溯</span>' +
-              '<span>不做自动处置</span>' +
+              I18n.t('<span>单平台首版</span>') +
+              I18n.t('<span>AI 线索 + 人工判断</span>') +
+              I18n.t('<span>证据可追溯</span>') +
+              I18n.t('<span>不做自动处置</span>') +
             '</div>' +
           '</div>' +
           '<div class="about-stamp" aria-hidden="true">' +
             '<span class="about-stamp-label">BUILD</span>' +
             '<strong>W11</strong>' +
-            '<span>真实 API 联调</span>' +
+            I18n.t('<span>真实 API 联调</span>') +
           '</div>' +
         '</section>' +
 
@@ -142,25 +142,25 @@
           '<section class="panel" aria-labelledby="stack-title">' +
             '<div class="panel-head">' +
               '<div>' +
-                '<h2 id="stack-title">技术栈</h2>' +
-                '<p>首版以清晰边界和可追溯性优先。</p>' +
+                I18n.t('<h2 id="stack-title">技术栈</h2>') +
+                I18n.t('<p>首版以清晰边界和可追溯性优先。</p>') +
               '</div>' +
               '<span class="count-chip">LIVE API</span>' +
             '</div>' +
             '<div class="stack-list">' +
-              '<div class="stack-item"><span class="stack-key">前端</span><span class="stack-value">原生 HTML / CSS / JavaScript，无构建步骤、无框架、无外部 CDN。</span></div>' +
-              '<div class="stack-item"><span class="stack-key">API</span><span class="stack-value">FastAPI（Python），批次接收返回 <code>202</code>，查询接口返回 JSON。</span></div>' +
-              '<div class="stack-item"><span class="stack-key">数据</span><span class="stack-value">PostgreSQL；评论事实、AI 推断与人工审计分表存储。</span></div>' +
-              '<div class="stack-item"><span class="stack-key">异步处理</span><span class="stack-value">Worker 认领分析 <code>Job</code>，调用内部 AI Service 逐条提取问题。</span></div>' +
-              '<div class="stack-item"><span class="stack-key">当前页面</span><span class="stack-value">批次上传、评论、问题组与人工复核均接真实 API，使用同一套登录权限。</span></div>' +
+              I18n.t('<div class="stack-item"><span class="stack-key">前端</span><span class="stack-value">原生 HTML / CSS / JavaScript，无构建步骤、无框架、无外部 CDN。</span></div>') +
+              I18n.t('<div class="stack-item"><span class="stack-key">API</span><span class="stack-value">FastAPI（Python），批次接收返回 <code>202</code>，查询接口返回 JSON。</span></div>') +
+              I18n.t('<div class="stack-item"><span class="stack-key">数据</span><span class="stack-value">PostgreSQL；评论事实、AI 推断与人工审计分表存储。</span></div>') +
+              I18n.t('<div class="stack-item"><span class="stack-key">异步处理</span><span class="stack-value">Worker 认领分析 <code>Job</code>，调用内部 AI Service 逐条提取问题。</span></div>') +
+              I18n.t('<div class="stack-item"><span class="stack-key">当前页面</span><span class="stack-value">批次上传、评论、问题组与人工复核均接真实 API，使用同一套登录权限。</span></div>') +
             '</div>' +
           '</section>' +
 
           '<section class="panel" aria-labelledby="api-title">' +
             '<div class="panel-head">' +
               '<div>' +
-                '<h2 id="api-title">API 端点一览</h2>' +
-                '<p>与系统架构文档中的对外接口保持一致。</p>' +
+                I18n.t('<h2 id="api-title">API 端点一览</h2>') +
+                I18n.t('<p>与系统架构文档中的对外接口保持一致。</p>') +
               '</div>' +
               '<span class="count-chip">6 ENDPOINTS</span>' +
             '</div>' +
@@ -172,15 +172,15 @@
           '<section class="panel" aria-labelledby="docs-title">' +
             '<div class="panel-head">' +
               '<div>' +
-                '<h2 id="docs-title">项目文档</h2>' +
-                '<p>了解完整流程、状态机与数据模型。</p>' +
+                I18n.t('<h2 id="docs-title">项目文档</h2>') +
+                I18n.t('<p>了解完整流程、状态机与数据模型。</p>') +
               '</div>' +
             '</div>' +
             '<div class="doc-list">' + [
-              ['architecture', '系统架构文档', '组件、数据流与状态边界'],
-              ['human-review', '人工复核与验收', '账号权限、复核流程和验收步骤'],
-              ['operations', '启动与运行说明', '环境准备、日志和测试命令'],
-              ['readme', '项目 README', '项目概览与使用入口']
+              ['architecture', I18n.t('系统架构文档'), I18n.t('组件、数据流与状态边界')],
+              ['human-review', I18n.t('人工复核与验收'), I18n.t('账号权限、复核流程和验收步骤')],
+              ['operations', I18n.t('启动与运行说明'), I18n.t('环境准备、日志和测试命令')],
+              ['readme', I18n.t('项目 README'), I18n.t('项目概览与使用入口')]
             ].map(function (doc) {
               return '<a class="doc-link" href="/project-docs/' + doc[0] + '" target="_blank" rel="noopener">' +
                 '<span class="doc-badge">MD</span><span class="doc-copy"><strong>' + doc[1] +
@@ -191,8 +191,8 @@
           '<section class="panel" aria-labelledby="team-title">' +
             '<div class="panel-head">' +
               '<div>' +
-                '<h2 id="team-title">队伍成员</h2>' +
-                '<p>MAIE6000c · 商品评论管理与重复问题发现系统</p>' +
+                I18n.t('<h2 id="team-title">队伍成员</h2>') +
+                I18n.t('<p>MAIE6000c · 商品评论管理与重复问题发现系统</p>') +
               '</div>' +
               '<span class="count-chip">4 MEMBERS</span>' +
             '</div>' +
@@ -200,7 +200,7 @@
           '</section>' +
         '</div>' +
 
-        '<p class="about-disclaimer">批次上传、评论、问题组与人工复核使用真实数据库。AI 判断与人工决定分别保留。</p>' +
+        I18n.t('<p class="about-disclaimer">批次上传、评论、问题组与人工复核使用真实数据库。AI 判断与人工决定分别保留。</p>') +
       '</div>';
   }
 
@@ -226,7 +226,7 @@
     var parsed = ProductRoutes.parse(window.location.hash);
     if (!parsed) {
       ReviewAuth.unmount();
-      appRoot.innerHTML = '<section class="panel"><h2>链接格式无效</h2><p>请从主导航重新选择页面。</p></section>';
+      appRoot.innerHTML = I18n.t('<section class="panel"><h2>链接格式无效</h2><p>请从主导航重新选择页面。</p></section>');
       return;
     }
     renderRoute(parsed);

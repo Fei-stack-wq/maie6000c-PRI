@@ -9,6 +9,7 @@
   <title>批次上传 · ReviewLens 评论洞察</title>
   <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAzMiAzMiI+PHJlY3Qgd2lkdGg9IjMyIiBoZWlnaHQ9IjMyIiByeD0iOCIgZmlsbD0iIzFGNEU3OSIvPjxwYXRoIGQ9Ik04IDEwLjVoMTZNOCAxNmgxME04IDIxLjVoNiIgc3Ryb2tlPSIjQkJEN0YyIiBzdHJva2Utd2lkdGg9IjIuNCIgc3Ryb2tlLWxpbmVjYXA9InJvdW5kIi8+PGNpcmNsZSBjeD0iMjMiIGN5PSIyMS41IiByPSIyLjgiIGZpbGw9IiM3RUM3RkYiLz48L3N2Zz4=">
   <link rel="stylesheet" href="./styles.css">
+  <link rel="stylesheet" href="./scope.css">
 </head>
 <body>
   <div class="app-shell">
@@ -79,6 +80,14 @@
           <p id="page-subtitle">从 CSV 接入评论，校验后建立分析任务。</p>
         </div>
         <div class="topbar-actions">
+          <label class="language-switch" for="ui-language">
+            <span class="sr-only">界面语言</span>
+            <select id="ui-language" aria-label="界面语言" aria-describedby="language-feedback">
+              <option value="zh" lang="zh-CN">中文</option>
+              <option value="en" lang="en">English</option>
+            </select>
+            <span id="language-feedback" role="status"></span>
+          </label>
           <a class="topbar-link" href="#/about">关于系统 <span aria-hidden="true">↗</span></a>
         </div>
       </header>
@@ -102,7 +111,13 @@
   </div>
 
   <!-- 复核通过同源 API 访问，请从 /ui/ 打开。 -->
+  <script src="./i18n-en.js"></script>
+  <script src="./i18n.js"></script>
   <script src="./api-client.js"></script>
+  <script src="./workbench-ui.js"></script>
+  <script src="./scope-filter.js"></script>
+  <script src="./scope-pages.js"></script>
+  <script src="./batch-actions.js"></script>
   <script src="./auth-ui.js"></script>
   <script src="./product-routes.js"></script>
   <script src="./reassign-ui.js"></script>

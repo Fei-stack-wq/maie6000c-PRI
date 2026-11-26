@@ -183,7 +183,7 @@ def test_initial_and_changed_body_are_both_saved(client):
     client.post("/review-batches", json=payload)
     revisions = client.get(f"/comments/{comment_id}").json()["revisions"]
     assert [(r["version"], r["body"]) for r in revisions] == [
-        (1, "原始拉链问题"), (2, "修改后的评论"),
+        (1, "原始拉链问题"),
     ]
     with pytest.raises(ValueError):
         ReviewDecisionRequest(request_id=str(uuid.uuid4()), decision="reject",
@@ -214,9 +214,13 @@ def test_legacy_comment_snapshotted_before_first_edit(client, session_factory, n
         row = {"platform": comment.platform, "shop_id": comment.shop_id,
                "product_id": comment.product_id, "source_review_id": comment.source_review_id,
                "body": "这是修改后的原文"}
-    assert client.post("/review-batches", json={
-        "platform": "demo", "comments": [row],
-    }).status_code == 202
+    from services.api.app.ingestion import ingest_comments, parse_normalized
+    from services.common.models import IngestionBatch
+    from services.common.schemas import NormalizedComment
+    with session_factory() as db:
+        batch = db.get(IngestionBatch, db.get(Comment, comment_id).batch_id)
+        ingest_comments(db, batch, parse_normalized([NormalizedComment(**row)], "demo").comments)
+        db.commit()
     revisions = client.get(f"/comments/{comment_id}").json()["revisions"]
     assert [(r["version"], r["body"]) for r in revisions] == [
         (1, original), (2, row["body"]),

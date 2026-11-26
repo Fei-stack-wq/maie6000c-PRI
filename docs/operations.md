@@ -2,304 +2,177 @@
 
 ## English
 
-### Integrated product: quick start
+### Quick start
 
-Start Docker Desktop, then run from the repository root:
+Start Docker Desktop. From the repository root:
 
 ```powershell
 .\scripts\start_product_ui.ps1
 ```
 
-Open <http://localhost:8000/ui/>. The script keeps an existing `.env`, builds the services and applies migrations through `20261121_0006`. The first AI build installs a CPU sentence model and downloads its weights, so it takes longer than a rule-only build. Keep Docker Desktop running.
-
-The default `.env.example` selects real-write demo identity. Session-mode accounts, reviewer/viewer permissions and cookie configuration remain described below. Stop with ` .\scripts\start_product_ui.ps1 -Action stop `; data volumes remain.
-
-Model configuration remains in local `.env`: `LLM_PROVIDER=openai_compatible`, `LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_API_KEY_HEADER=api-key` (or `Authorization`), `LLM_TIMEOUT_SECONDS=8`, `LLM_PROMPT_VERSION=review-extraction-v1`. Copy `.env.example` only when `.env` is absent. Rebuild/recreate services after changes; never print or commit the Key.
-
-The configured model receives at most three attempts before rule fallback. Missing configuration falls back immediately. Comment details show source, model, model-attempt count and fallback reason. Worker task retries handle failures reaching the Worker; they are not the same count. Outer request timeouts accommodate all three model attempts.
-
-Compose installs local multilingual MiniLM in the AI image. Run `docker compose exec ai python -m scripts.probe_grouping_backend` to verify the backend is actually `sentence_transformers`; a healthy HTTP endpoint alone does not prove semantic grouping is active. A failed grouping call can use the coarse category fallback. The first image build requires network access and disk space for CPU dependencies/model files.
-
-The default workbench uses real batch lists and human writes. Original static preview: `/ui/legacy/`; previous read-only version: `/ui/previous/`. Identical CSV imports deduplicate; they do not reanalyse completed historical comments. Use an isolated database to compare new grouping without deleting existing work.
-
-
-
-### 1. Midterm demo: quickest start
-
-Start Docker Desktop. In the repository root:
+Open <http://localhost:8000/ui/>. Use the language selector at the top right.
+The script keeps your existing `.env`, builds the services and applies migrations through
+`20261126_0010`. First-time CPU model installation/download can take several minutes.
+Startup also performs the one-time local repair of unreviewed legacy groups; no provider requests
+are used for that repair. Old uploads with unrecoverable occurrence information are marked on screen.
 
 ```powershell
-# Windows
+.\scripts\start_product_ui.ps1 -Action status
+.\scripts\start_product_ui.ps1 -Action stop
+```
+
+Stopping the whole stack keeps its data volume. The page's **Stop remaining analysis** button
+instead cancels unfinished records in one batch and keeps other batches running.
+
+### Using batches and results
+
+1. Upload a UTF-8 CSV with `shop_id,product_id,body`. Optional columns are
+   `source_review_id,review_date,rating`. Each file belongs to one platform.
+2. Open batch progress. Completed, failed, queued and cancelled counts are separate.
+3. Comments and Issue groups offer complete batch/product options with multiple selection.
+   Product choices follow the selected batches. Empty selection means all.
+4. The issue board lists batch → product → category, with grouped entries above pending entries.
+   Check evidence before confirming; use Review / reassign to correct either kind.
+5. Stop cancels unfinished work permanently for that batch. Late results are ignored. Completed
+   `no` and `unknown` reviews remain visible; cancelled records are available in the imported-record view.
+6. Move a batch to Trash to hide it, Restore to bring its saved content back, or Delete permanently
+   to remove that batch only. Restoring does not resume cancelled jobs. Permanent deletion is irreversible.
+
+Each deliberate upload has independent snapshots/jobs, even if the source IDs or file are unchanged.
+The same upload request's idempotency key protects network retries from creating another batch.
+Do not remove the PostgreSQL volume when updating the application.
+
+### Model and identity configuration
+
+Keep the provider Key in ignored local `.env`. The configurable fields remain `LLM_PROVIDER`,
+`LLM_BASE_URL`, `LLM_MODEL`, `LLM_API_KEY`, `LLM_API_KEY_HEADER` and `LLM_TIMEOUT_SECONDS`.
+`LLM_PROVIDER=heuristic` runs without an external Key. The standard prompt is now
+`review-extraction-v2`; the adapter upgrades the old standard v1 name when an existing `.env` retains it.
+
+Configured model failures receive at most two retries before keyword fallback. Missing configuration
+falls back immediately. Model attempts and Worker job attempts are separate. Rule fallback and
+uncertain/unsupported results remain pending; high confidence alone cannot trigger automatic adoption.
+MiniLM grouping runs locally and needs no extra provider Key.
+
+Local demo identity writes real data. For named local accounts, use session mode and set
+`REVIEW_COOKIE_SECURE=false` only for local HTTP. HTTPS deployments use secure cookies.
+Create accounts interactively, without putting passwords in command arguments:
+
+```bash
+docker compose exec -it api python -m services.api.app.auth.manage create reviewer1 --role reviewer
+docker compose exec -it api python -m services.api.app.auth.manage create viewer1 --role viewer
+```
+
+Reviewers can upload and change data; viewers can read. Account changes revoke existing sessions.
+Business requests use same-origin session/CSRF checks. The workbench is a shared team workspace,
+not a per-store authorization system.
+
+### Monitoring and checks
+
+| Check | Command / location |
+| --- | --- |
+| Services/logs | Docker Desktop, or `docker compose ps` and `docker compose logs --tail 100 api worker ai` |
+| Health | API/AI `/health/live` and `/health/ready` |
+| Metrics | API/AI `/metrics`; Worker port 8200 inside the network |
+| Real grouping backend | `docker compose exec ai python -m scripts.probe_grouping_backend` |
+| Python tests | Python 3.11: `pip install -e ".[dev]"`, then `python -m pytest -q tests/unit tests/integration` |
+| PostgreSQL concurrency | Set `WORKER_TEST_DATABASE_URL` to an isolated database whose name ends in `_test` |
+| Frontend | Node 22+: `node --test tests/frontend/*.cjs` |
+| Migration consistency | In an isolated database: `alembic upgrade head` then `alembic check` |
+| Windows isolated checks | `.\scripts\test_r2.ps1` |
+
+The startup script handles machines without a registered `docker compose` command. Docker Desktop's
+log view is also available. Never run migration round-trips or destructive tests against the project database.
+Downgrades refuse data states that cannot fit the older schema without loss; restore a backup instead.
+
+### Separate midterm demo
+
+```powershell
 .\scripts\start_midterm_demo.ps1
 ```
 
-```bash
-# macOS / Linux
-docker compose -f compose.midterm.yaml up --build -d --wait
-```
-
-Open **<http://localhost:18717/en>** or <http://localhost:18717/zh>.
-Keep the sample review, submit it, then start analysis. Use a new round to try retry scenarios.
-The [demo instructions](../demo/midterm/README.md) cover the buttons, port changes and shutdown.
-This mode builds from repository source, needs no `.env` or API key, and creates its own database.
-It can run alongside the original project.
-
-### 2. Original project services
-
-Use this mode for API development and the team's original five-page frontend.
-
-```bash
-cp .env.example .env
-docker compose up --build -d --wait
-```
-
-On Windows, `Copy-Item .env.example .env` is also available. Copy only on first setup;
-keep an existing `.env` if it contains your settings.
-
-| Address | Use |
-| --- | --- |
-| `http://localhost:8000/docs` | Submit real batches and query the backend |
-| `http://localhost:8000/ui/` | Live CSV upload, batch progress, comments, issue groups and human review |
-| `http://localhost:8100/docs` | Model/rule and semantic grouping API |
-| `http://localhost:9090` | Prometheus after `docker compose --profile observability up -d` |
-
-API startup applies migrations through `20261121_0006`. The example configuration uses explicit demo identity.
-For named accounts, set `REVIEW_AUTH_MODE=session` and `REVIEW_COOKIE_SECURE=false` for local HTTP,
-then recreate the API with `docker compose up -d --force-recreate api`. Provision accounts interactively:
-
-```bash
-docker compose exec api python -m services.api.app.auth.manage create reviewer1 --role reviewer
-docker compose exec api python -m services.api.app.auth.manage create viewer1 --role viewer
-```
-
-Use a reviewer to upload and review; a viewer can only read. HTTPS deployments keep Secure cookies enabled;
-see [human review](human-review.md) for configuration, role boundaries and acceptance steps.
-The demo mode also writes real database records; it is not a dry run.
-
-To add prepared sample data, run
-`docker compose exec api python -m scripts.seed_demo_data`.
-Seeded records are example data, not evidence of a newly executed analysis.
-Stop this stack with `docker compose down`; this keeps its data volume.
-
-### 3. Logs and monitoring
-
-| Mode | Check |
-| --- | --- |
-| Midterm demo | ` .\scripts\start_midterm_demo.ps1 -Action status ` on Windows; otherwise `docker compose -f compose.midterm.yaml ps` |
-| Midterm worker log | `docker compose -f compose.midterm.yaml exec midterm-demo sh -c "tail -n 60 /tmp/midterm-worker.log"` |
-| Original stack | `docker compose ps` and `docker compose logs --tail 100 api worker ai` |
-
-The demo worker log is created after starting analysis. API and AI child logs are
-`/tmp/midterm-api.log` and `/tmp/midterm-ai.log` in the demo container.
-Docker Desktop's container log view is useful if a local Compose command is unavailable.
-
-API and AI expose `/health/live`, `/health/ready` and `/metrics`. Worker metrics use port 8200
-inside the container/network, not a published host port. The original Prometheus configuration
-scrapes `worker:8200`. Metrics are `worker_job_events_total`, `worker_attempt_duration_seconds`,
-`worker_jobs` and `worker_last_poll_timestamp_seconds`. A running metrics endpoint alone does not
-prove that the worker can reach the database; check the last successful poll and logs.
-For the demo, read metrics after starting analysis:
-
-```bash
-docker compose -f compose.midterm.yaml exec midterm-demo python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8200/metrics').read().decode())"
-```
-
-### 4. Failures and recovery
-
-A retryable failure returns the job to `pending` and the comment to `queued`, with a next-run time.
-Final failures remain `failed`. The demo shows failures directly; the original project shows live
-analysis states in batch details and comment lists, with additional error codes available through job APIs.
-Every worker poll checks for expired claims and requeues or finally fails them according to the limit.
-The same recovery can be invoked in the original stack:
-
-```bash
-docker compose exec worker python -m scripts.recover_stale_jobs
-```
-
-This does not restart terminal failed jobs. Manual retry/recover APIs and batch replay are not implemented.
-For configuration and error rules, see [R2 implementation](r2-implementation.md).
-
-### 5. Tests
-
-| Check | Command and conditions |
-| --- | --- |
-| Demo's ten bilingual cases | Idle demo: ` .\scripts\start_midterm_demo.ps1 -Action check `; macOS/Linux command is in the demo instructions |
-| Complete R2 checks | Windows with Docker: ` .\scripts\test_r2.ps1 ` creates and removes isolated test resources |
-| Unit/integration only | Python 3.11 with `pip install -e ".[dev]"`: `python -m pytest -q tests/unit tests/integration` |
-| PostgreSQL locking tests | Included above only with `WORKER_TEST_DATABASE_URL` pointing to a separate PostgreSQL database ending in `_test`; otherwise the PostgreSQL cases skip (currently 40 cases) |
-| Frontend routes and CSV handling | Node 22: `node --test tests/frontend/*.cjs` |
-| Authenticated review acceptance | Explicit local session-mode opt-in and test credentials: see [human review](human-review.md); `python -m pytest -q tests/smoke/test_human_review_live.py` |
-| Original-stack smoke | `SMOKE_BASE_URL=http://localhost:8000 pytest tests/smoke -q` runs the basic smoke case; four fault/recovery cases require the isolated runner |
-
-The local human-review delivery passed 405 Python tests (including 40 PostgreSQL cases) and
-8 frontend tests. PR CI also runs the frontend tests and `alembic check`; this record does not imply
-a remote CI run before the branch is pushed.
-
-The R2 script runs unit/integration tests, five real-service smoke tests, migration round-trips
-and shutdown checks. The earlier recorded run passed 94 unit/integration tests; a later delivery-rule
-extension passed 78 analysis unit tests and four live demo regressions separately. Demo acceptance
-is a separate ten-case bilingual check. See the [verification record](../templates/submissions/week07/assets/verification.md).
-
-### 6. Troubleshooting and data maintenance
-
-| Problem | Action |
-| --- | --- |
-| Cannot connect to Docker | Start Docker Desktop with Linux containers |
-| Demo port occupied | Windows: add `-Port 18727`; macOS/Linux: set `MIDTERM_DEMO_PORT=18727` for the Compose startup command |
-| Warranty/after-sales complaint returns no issue or unknown | This is a known rule-coverage limit, not necessarily an execution failure; inspect the original review |
-| Build downloads fail | Check network access and retry the build |
-| Demo does not become healthy | Inspect `midterm-demo` container logs; confirm migration and API/AI startup |
-| Unknown result for an English review | English rules cover selected phrases; other text usually returns unknown, while positive cues can yield no issue; inspect the source review |
-
-Stopping or starting a new demo round keeps database records. The demo has its own volume;
-the original project has a different volume. Deleting a volume or resetting a database is a developer
-maintenance action, not part of a normal demonstration. Applied migrations should be followed by
-new migrations rather than edited in place. Use downgrade tests only on disposable test databases.
+Open <http://localhost:18717/en> or <http://localhost:18717/zh>. This demonstration uses an independent
+database and retains its original controls. `/ui/legacy/` and `/ui/previous/` are archived frontend previews.
 
 ## 中文
 
-### 整合产品：快捷启动
+### 快速启动
 
-先启动 Docker Desktop，在仓库根目录运行：
+启动 Docker Desktop，在仓库根目录运行：
 
 ```powershell
 .\scripts\start_product_ui.ps1
 ```
 
-打开 <http://localhost:8000/ui/>。脚本保留已有 `.env`，构建服务并迁移数据库到 `20261121_0006`。首次构建 AI 服务需要安装 CPU 语义模型并下载权重，会比纯规则版更久。运行时保持 Docker Desktop 开启。
-
-默认 `.env.example` 使用会真实写库的演示身份。会话账号、复核员／只读权限和 Cookie 设置见下文。停止使用 ` .\scripts\start_product_ui.ps1 -Action stop `，数据卷保留。
-
-模型配置保存在本地 `.env`：`LLM_PROVIDER=openai_compatible`、`LLM_BASE_URL`、`LLM_MODEL`、`LLM_API_KEY`、`LLM_API_KEY_HEADER=api-key`（或 `Authorization`）、`LLM_TIMEOUT_SECONDS=8`、`LLM_PROMPT_VERSION=review-extraction-v1`。只在 `.env` 不存在时复制示例；修改后重建／重建容器，不打印或提交 Key。
-
-模型已配置时最多尝试三次，再回退规则；缺少配置直接回退。评论详情展示来源、模型、模型尝试次数和回退原因。只有传到 Worker 的执行错误才进入任务重试，两种次数不同。外围请求超时已适配三次模型尝试。
-
-Compose 会在 AI 镜像安装本地多语言 MiniLM。可运行 `docker compose exec ai python -m scripts.probe_grouping_backend`，确认实际后端是 `sentence_transformers`。HTTP 健康不等于语义归组生效；归组调用失败可能使用粗类别回退。首次构建需要网络和 CPU 依赖／模型文件所需磁盘空间。
-
-默认工作台读取真实批次列表并提交人工操作。原静态设计在 `/ui/legacy/`，上次只读版本在 `/ui/previous/`。重复上传相同 CSV 会去重，不会重新分析已完成的历史评论；新旧效果比较使用独立数据库，不删除已有工作数据。
-
-
-
-### 1. 期中 Demo：最快启动
-
-启动 Docker Desktop，在仓库根目录执行：
+打开 <http://localhost:8000/ui/>，右上角切换中英文。
+脚本保留现有 `.env`，构建服务并迁移到 `20261126_0010`；首次安装 CPU 模型及下载权重可能需要数分钟。
+启动时还会一次性整理未人工处理的旧归组，直接使用已保存输出，不调用外部模型。
+旧版无法完整还原的批次记录会在页面标明。
 
 ```powershell
-# Windows
+.\scripts\start_product_ui.ps1 -Action status
+.\scripts\start_product_ui.ps1 -Action stop
+```
+
+关闭整套服务会保留数据卷。页面的“停止剩余分析”只取消某个批次的未完成记录，其他批次继续运行。
+
+### 使用批次与结果
+
+1. 上传 UTF-8 CSV，必填 `shop_id,product_id,body`；可选
+   `source_review_id,review_date,rating`。每个文件对应一个平台。
+2. 批次详情分别显示完成、失败、等待和取消数量。
+3. 评论和问题组提供完整的批次、商品多选项；商品随批次联动，不指定时查看全部。
+4. 问题看板按“批次 → 商品 → 类别”排列，上方已归组、下方待确认。先核对证据，再确认；两种内容均可调整归组。
+5. 停止后不再继续该批次的未完成任务，迟到结果不落库。完成的 no、unknown 评论仍保留；取消内容在原始导入记录中查看。
+6. 移到回收站用于隐藏，恢复带回原有内容，永久删除仅清除该批次。恢复不会重启取消任务，永久删除不能撤销。
+
+每次主动上传都保存独立正文和任务，即使来源编号或文件相同。相同请求的幂等编号用于避免网络重试重复建批次。
+更新应用时不要删除 PostgreSQL 数据卷。
+
+### 模型与身份配置
+
+Key 保存在已忽略的本地 `.env`。继续使用 `LLM_PROVIDER`、`LLM_BASE_URL`、`LLM_MODEL`、
+`LLM_API_KEY`、`LLM_API_KEY_HEADER`、`LLM_TIMEOUT_SECONDS`。
+`LLM_PROVIDER=heuristic` 不调用外部模型。标准提示词更新为 `review-extraction-v2`，
+已有 `.env` 保留旧标准 v1 名称时，适配器会使用新版并记录新版名称。
+
+模型已配置但调用失败时最多重试两次，再回退关键词；缺少配置立即回退。
+模型次数与 Worker 任务次数分开计算。规则回退和不明确的结果保持待确认，不能只凭模型自报高分自动通过。
+MiniLM 归组在本地运行，不需要额外提供方 Key。
+
+本地演示身份会写真实数据。具名本地账号使用 session 模式，仅本地 HTTP 设置 `REVIEW_COOKIE_SECURE=false`；
+HTTPS 部署使用安全 Cookie。交互式创建账号，不把密码放入命令参数：
+
+```bash
+docker compose exec -it api python -m services.api.app.auth.manage create reviewer1 --role reviewer
+docker compose exec -it api python -m services.api.app.auth.manage create viewer1 --role viewer
+```
+
+复核员可上传和修改，只读成员只能查看。账号变更会撤销已有会话；业务请求使用同源、会话和 CSRF 检查。
+当前是小组共享工作区，不提供按店铺划分的账号授权。
+
+### 运行检查
+
+| 检查 | 命令／位置 |
+| --- | --- |
+| 服务和日志 | Docker Desktop，或 `docker compose ps`、`docker compose logs --tail 100 api worker ai` |
+| 健康状态 | API／AI 的 `/health/live`、`/health/ready` |
+| 指标 | API／AI 的 `/metrics`；Worker 使用网络内部的 8200 端口 |
+| 真实归组后端 | `docker compose exec ai python -m scripts.probe_grouping_backend` |
+| Python 测试 | Python 3.11：`pip install -e ".[dev]"` 后运行 `python -m pytest -q tests/unit tests/integration` |
+| PostgreSQL 并发 | `WORKER_TEST_DATABASE_URL` 指向独立且名称以 `_test` 结尾的数据库 |
+| 前端 | Node 22+：`node --test tests/frontend/*.cjs` |
+| 迁移一致性 | 独立数据库中运行 `alembic upgrade head`、`alembic check` |
+| Windows 隔离检查 | `.\scripts\test_r2.ps1` |
+
+启动脚本兼容没有注册 `docker compose` 命令的机器，也可在 Docker Desktop 查看日志。
+迁移往返和删除测试不能针对项目数据库执行。新数据无法无损放回旧结构时，降级会被阻止，应通过备份恢复。
+
+### 独立期中 Demo
+
+```powershell
 .\scripts\start_midterm_demo.ps1
 ```
 
-```bash
-# macOS / Linux
-docker compose -f compose.midterm.yaml up --build -d --wait
-```
-
-打开 **<http://localhost:18717/en>** 或 <http://localhost:18717/zh>。
-保留示例评论，先提交评论，再启动分析，开始新一轮可切换重试场景。
-按钮、换端口和停止方法见 [Demo 运行说明](../demo/midterm/README.md)。
-此模式从仓库源码构建，不需要 `.env` 或 API Key，创建独立数据库，可与原项目同时运行。
-
-### 2. 原项目服务
-
-开发 API 或查看组员原五页前端时使用此模式。
-
-```bash
-cp .env.example .env
-docker compose up --build -d --wait
-```
-
-Windows 也可使用 `Copy-Item .env.example .env`。只在首次准备时复制，已有个人配置的 `.env` 应保留。
-
-| 地址 | 用途 |
-| --- | --- |
-| `http://localhost:8000/docs` | 提交真实批次、查询后台 |
-| `http://localhost:8000/ui/` | 真实 CSV 上传、批次进度、评论、问题组和人工复核 |
-| `http://localhost:8100/docs` | 模型／规则分析与语义归组 API |
-| `http://localhost:9090` | 执行 `docker compose --profile observability up -d` 后的 Prometheus |
-
-API 启动时迁移到 `20261121_0006`。示例配置使用明确标注的演示身份。
-启用独立账号时，在 `.env` 设置 `REVIEW_AUTH_MODE=session`；本机 HTTP 同时设置
-`REVIEW_COOKIE_SECURE=false`，再执行 `docker compose up -d --force-recreate api`。交互创建账号：
-
-```bash
-docker compose exec api python -m services.api.app.auth.manage create reviewer1 --role reviewer
-docker compose exec api python -m services.api.app.auth.manage create viewer1 --role viewer
-```
-
-复核员可以上传和复核，只读成员仅能查询。HTTPS 部署保持 Secure Cookie；详细配置、权限边界
-和验收步骤见[人工复核说明](human-review.md)。演示身份也会写入真实数据库，不是模拟提交。
-
-加入预制示例数据可执行
-`docker compose exec api python -m scripts.seed_demo_data`。
-种子记录是示例数据，不能作为刚刚执行了一次分析的证据。
-使用 `docker compose down` 停止此栈，数据卷保留。
-
-### 3. 日志与监控
-
-| 模式 | 检查方法 |
-| --- | --- |
-| 期中 Demo | Windows 使用 ` .\scripts\start_midterm_demo.ps1 -Action status `；其他平台使用 `docker compose -f compose.midterm.yaml ps` |
-| Demo Worker 日志 | `docker compose -f compose.midterm.yaml exec midterm-demo sh -c "tail -n 60 /tmp/midterm-worker.log"` |
-| 原项目 | `docker compose ps` 和 `docker compose logs --tail 100 api worker ai` |
-
-点击启动分析后才产生 Demo Worker 日志。API 和 AI 子进程日志分别位于容器内的
-`/tmp/midterm-api.log`、`/tmp/midterm-ai.log`。
-本机 Compose 命令不可用时，可以在 Docker Desktop 中查看容器日志。
-
-API 和 AI 提供 `/health/live`、`/health/ready` 和 `/metrics`。Worker 指标使用容器／网络内的
-8200 端口，不向宿主机发布。原项目 Prometheus 采集 `worker:8200`，指标包括
-`worker_job_events_total`、`worker_attempt_duration_seconds`、`worker_jobs` 和
-`worker_last_poll_timestamp_seconds`。指标端口能打开不代表数据库连通，应结合最近成功轮询和日志判断。
-Demo 启动分析后可读取指标：
-
-```bash
-docker compose -f compose.midterm.yaml exec midterm-demo python -c "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:8200/metrics').read().decode())"
-```
-
-### 4. 失败与回收
-
-可重试失败将任务放回 `pending`、评论放回 `queued`，并设置下次执行时间；最终失败保持 `failed`。
-小 Demo 直接展示失败；原项目的批次详情和评论列表展示真实分析状态，具体错误码可通过任务接口查看。
-Worker 每轮检查过期领取，根据剩余次数重新排队或最终失败。原项目也可以手动调用同一回收逻辑：
-
-```bash
-docker compose exec worker python -m scripts.recover_stale_jobs
-```
-
-它不会重新执行已经最终失败的任务。人工 retry/recover API 和批量重放尚未实现。
-配置和错误规则见 [R2 实现说明](r2-implementation.md)。
-
-### 5. 测试
-
-| 检查 | 命令与条件 |
-| --- | --- |
-| Demo 十个双语用例 | 页面空闲时执行 ` .\scripts\start_midterm_demo.ps1 -Action check `；macOS/Linux 命令见 Demo 说明 |
-| 完整 R2 检查 | Windows 启动 Docker 后执行 ` .\scripts\test_r2.ps1 `，脚本创建并清理独立测试资源 |
-| 仅单元／集成 | Python 3.11 执行 `pip install -e ".[dev]"` 后运行 `python -m pytest -q tests/unit tests/integration` |
-| PostgreSQL 锁测试 | 需将 `WORKER_TEST_DATABASE_URL` 指向名称以 `_test` 结尾的独立 PostgreSQL 测试库，否则 PostgreSQL 用例跳过（当前 40 项） |
-| 前端路由与 CSV 文件处理 | Node 22：`node --test tests/frontend/*.cjs` |
-| 登录模式完整复核验收 | 显式启用本机测试地址及测试账号，见[人工复核说明](human-review.md)；`python -m pytest -q tests/smoke/test_human_review_live.py` |
-| 原项目冒烟 | `SMOKE_BASE_URL=http://localhost:8000 pytest tests/smoke -q` 执行基础用例；四项故障／回收用例需要隔离启动脚本 |
-
-本地人工复核交付已通过 405 项 Python 测试（含 40 项 PostgreSQL）和 8 项前端测试。
-PR 的 CI 同时执行前端测试和 `alembic check`；尚未推送时，这不是远端 CI 已运行的证明。
-
-完整 R2 脚本运行单元／集成、5 项真实服务冒烟、迁移往返和正常退出检查。
-较早记录为 94 项单元／集成通过；后续物流规则扩展另通过 78 项分析单元测试和四例真实 Demo 回归。
-Demo 验收是独立的十例双语检查。
-结果见 [验证记录](../templates/submissions/week07/assets/verification.md)。
-
-### 6. 问题排查与数据维护
-
-| 问题 | 处理方式 |
-| --- | --- |
-| 无法连接 Docker | 启动 Docker Desktop 并使用 Linux containers |
-| Demo 端口占用 | Windows 加 `-Port 18727`；macOS/Linux 在 Compose 启动命令前设置 `MIDTERM_DEMO_PORT=18727` |
-| 保修／售后投诉返回无问题或无法判断 | 属于已知规则覆盖边界，不一定是程序运行失败；应查看原评论 |
-| 构建下载失败 | 检查网络后重新构建 |
-| Demo 服务不健康 | 查看 `midterm-demo` 容器日志，确认迁移和 API／AI 启动情况 |
-| 英文评论返回无法判断 | 英文规则只覆盖部分表达，其他内容通常返回 unknown，但好评表达也可能导致无问题；应核对原文 |
-
-停止或开始新一轮演示都会保留数据库记录。Demo 和原项目使用不同的数据卷。
-删除卷、重置数据库属于开发维护，不是正常演示步骤。已经应用的迁移应通过新增迁移继续修改，
-不要直接改历史；降级测试仅在可丢弃的测试数据库执行。
+打开 <http://localhost:18717/en> 或 <http://localhost:18717/zh>。它继续使用独立数据库和原有控制方式。
+`/ui/legacy/`、`/ui/previous/` 是保留的前端历史预览。

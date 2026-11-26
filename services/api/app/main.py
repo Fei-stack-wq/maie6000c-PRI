@@ -22,8 +22,10 @@ from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from services.api.app.reviews.router import router as review_router
+from services.api.app.batches import router as batch_router, visible_comment, visible_issue
 from services.api.app.auth.access import require_access
 from services.api.app.auth.router import router as auth_router
+from services.api.app.catalog import router as catalog_router, apply_scope
 from services.api.app.ingestion import ingest_comments, parse_csv, parse_normalized
 from services.common.config import configure_logging
 from services.common.db import get_db
@@ -74,6 +76,8 @@ app = FastAPI(
 
 app.include_router(auth_router)
 app.include_router(review_router)
+app.include_router(batch_router)
+app.include_router(catalog_router)
 
 HTTP_REQUESTS = Counter(
     "api_http_requests_total",
@@ -127,6 +131,8 @@ def _scope(
 
 def _resolve_batch_status(batch: IngestionBatch, pending: int, processing: int, failed: int) -> str:
     """Derive the presentation status; only import stages are persisted (§4.2)."""
+    if batch.stopped_at is not None:
+        return BatchStatus.STOPPED.value
     if batch.status == BatchStatus.REJECTED.value:
         return BatchStatus.REJECTED.value
     if pending or processing:
@@ -154,15 +160,22 @@ def _batch_progress(db: Session, batch: IngestionBatch) -> BatchProgressRead:
     pending = job_status.get(JobStatus.PENDING.value, 0)
     processing = job_status.get(JobStatus.CLAIMED.value, 0)
     current_rows = sum(comment_status.values())
-    waiting = sum(comment_status.get(status.value, 0) for status in (
-        AnalysisStatus.RECEIVED, AnalysisStatus.QUEUED, AnalysisStatus.ANALYZING,
-    ))
+    waiting = sum(
+        comment_status.get(status.value, 0)
+        for status in (
+            AnalysisStatus.RECEIVED,
+            AnalysisStatus.QUEUED,
+            AnalysisStatus.ANALYZING,
+        )
+    )
     failed_jobs = job_status.get(JobStatus.FAILED.value, 0)
     coverage = round(analyzed / current_rows, 4) if current_rows else None
 
     return BatchProgressRead(
         batch_id=batch.id,
-        batch=BatchRead.model_validate(batch),
+        batch=BatchRead.model_validate(batch).model_copy(
+            update={"unfinished_rows": waiting + failed}
+        ),
         status=_resolve_batch_status(batch, pending + waiting, processing, failed + failed_jobs),
         job_count=job_count,
         analyzed_rows=analyzed,
@@ -171,6 +184,7 @@ def _batch_progress(db: Session, batch: IngestionBatch) -> BatchProgressRead:
         processing_rows=processing,
         current_rows=current_rows,
         waiting_rows=waiting,
+        cancelled_rows=comment_status.get("cancelled", 0),
         failed_jobs=failed_jobs,
         analysis_coverage=coverage,
         scope=_scope(),
@@ -190,7 +204,7 @@ def _batch_response(batch: IngestionBatch) -> BatchCreateResponse:
 
 def _get_batch(db: Session, batch_id: str) -> IngestionBatch:
     batch = db.get(IngestionBatch, batch_id)
-    if batch is None:
+    if batch is None or batch.deleted_at is not None:
         raise HTTPException(status_code=404, detail={"code": "batch_not_found"})
     return batch
 
@@ -284,21 +298,32 @@ def create_batch(
     payload: BatchUploadRequest,
     db: Session = Depends(get_db),
 ) -> BatchCreateResponse:
-    fingerprint = hashlib.sha256(json.dumps(
-        payload.model_dump(mode="json", exclude={"idempotency_key"}),
-        sort_keys=True, ensure_ascii=True,
-    ).encode()).hexdigest()
+    fingerprint = hashlib.sha256(
+        json.dumps(
+            payload.model_dump(mode="json", exclude={"idempotency_key"}),
+            sort_keys=True,
+            ensure_ascii=True,
+        ).encode()
+    ).hexdigest()
     if payload.idempotency_key:
         if db.get_bind().dialect.name == "postgresql":
-            key = int.from_bytes(hashlib.sha256(
-                ("batch:" + payload.idempotency_key).encode(),
-            ).digest()[:8], "big", signed=True)
-            db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
-        existing = db.execute(
-            select(IngestionBatch).where(
-                IngestionBatch.idempotency_key == payload.idempotency_key
+            key = int.from_bytes(
+                hashlib.sha256(
+                    ("batch:" + payload.idempotency_key).encode(),
+                ).digest()[:8],
+                "big",
+                signed=True,
             )
-        ).scalars().first()
+            db.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": key})
+        existing = (
+            db.execute(
+                select(IngestionBatch).where(
+                    IngestionBatch.idempotency_key == payload.idempotency_key
+                )
+            )
+            .scalars()
+            .first()
+        )
         if existing is not None:
             if existing.file_hash and existing.file_hash != fingerprint:
                 raise HTTPException(409, detail={"code": "idempotency_conflict"})
@@ -387,23 +412,46 @@ def create_batch(
 @app.get("/review-batches", response_model=list[BatchRead])
 def list_batches(
     response: Response,
+    trash: bool = False,
     platform: str | None = Query(default=None, max_length=32),
     q: str = Query(default="", max_length=200),
     limit: int = Query(default=20, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[BatchRead]:
-    stmt = select(IngestionBatch)
+    stmt = select(IngestionBatch).where(
+        IngestionBatch.deleted_at.is_not(None) if trash else IngestionBatch.deleted_at.is_(None)
+    )
     if platform:
         stmt = stmt.where(IngestionBatch.platform == platform)
     if q.strip():
         stmt = stmt.where(IngestionBatch.file_ref.icontains(q.strip(), autoescape=True))
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     response.headers["X-Total-Count"] = str(total)
-    batches = db.scalars(stmt.order_by(
-        IngestionBatch.created_at.desc(), IngestionBatch.id,
-    ).limit(limit).offset(offset)).all()
-    return [BatchRead.model_validate(batch) for batch in batches]
+    batches = db.scalars(
+        stmt.order_by(
+            IngestionBatch.created_at.desc(),
+            IngestionBatch.id,
+        )
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    unfinished = dict(
+        db.execute(
+            select(Comment.batch_id, func.count())
+            .where(
+                Comment.batch_id.in_([batch.id for batch in batches]),
+                Comment.analysis_status.notin_(["analyzed", "cancelled"]),
+            )
+            .group_by(Comment.batch_id)
+        ).all()
+    )
+    return [
+        BatchRead.model_validate(batch).model_copy(
+            update={"unfinished_rows": unfinished.get(batch.id, 0)}
+        )
+        for batch in batches
+    ]
 
 
 @app.get("/review-batches/{batch_id}", response_model=BatchProgressRead)
@@ -415,11 +463,15 @@ def read_batch_progress(batch_id: str, db: Session = Depends(get_db)) -> BatchPr
 @app.get("/review-batches/{batch_id}/errors", response_model=list[BatchErrorRead])
 def read_batch_errors(batch_id: str, db: Session = Depends(get_db)) -> list[BatchErrorRead]:
     batch = _get_batch(db, batch_id)
-    rows = db.execute(
-        select(BatchRow)
-        .where(BatchRow.batch_id == batch.id)
-        .order_by(BatchRow.row_number.asc())
-    ).scalars().all()
+    rows = (
+        db.execute(
+            select(BatchRow)
+            .where(BatchRow.batch_id == batch.id)
+            .order_by(BatchRow.row_number.asc())
+        )
+        .scalars()
+        .all()
+    )
     return [BatchErrorRead.model_validate(row) for row in rows]
 
 
@@ -430,6 +482,8 @@ def read_batch_errors(batch_id: str, db: Session = Depends(get_db)) -> list[Batc
 def list_comments(
     response: Response,
     batch_id: str | None = Query(default=None, max_length=36),
+    batch_ids: str = Query(default="", max_length=8000),
+    product_keys: str = Query(default="", max_length=80000),
     product_id: str | None = None,
     analysis_status: str | None = None,
     has_issue: str | None = None,
@@ -438,7 +492,7 @@ def list_comments(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[CommentRead]:
-    stmt = select(Comment)
+    stmt = apply_scope(select(Comment).where(visible_comment()), Comment, batch_ids, product_keys)
     if batch_id:
         stmt = stmt.where(Comment.batch_id == batch_id)
     if product_id:
@@ -451,10 +505,34 @@ def list_comments(
         stmt = stmt.where(Comment.body.icontains(q.strip(), autoescape=True))
     total = db.scalar(select(func.count()).select_from(stmt.subquery()))
     response.headers["X-Total-Count"] = str(total)
-    comments = db.execute(stmt.order_by(Comment.created_at.desc(), Comment.id).limit(
-        limit,
-    ).offset(offset)).scalars().all()
-    return [CommentRead.model_validate(comment) for comment in comments]
+    comments = (
+        db.execute(
+            stmt.order_by(Comment.created_at.desc(), Comment.id)
+            .limit(
+                limit,
+            )
+            .offset(offset)
+        )
+        .scalars()
+        .all()
+    )
+    categories = {}
+    for comment_id, category in db.execute(
+        select(CommentIssue.comment_id, Issue.category_id)
+        .join(Issue, Issue.id == CommentIssue.issue_id)
+        .where(
+            CommentIssue.comment_id.in_([comment.id for comment in comments]),
+            CommentIssue.superseded_at.is_(None),
+            CommentIssue.status.in_(["accepted", "suggested"]),
+        )
+    ):
+        categories.setdefault(comment_id, set()).add(category)
+    return [
+        CommentRead.model_validate(comment).model_copy(
+            update={"issue_categories": sorted(categories.get(comment.id, []))}
+        )
+        for comment in comments
+    ]
 
 
 @app.get("/comments/{comment_id}", response_model=CommentDetailRead)
@@ -464,34 +542,44 @@ def read_comment(comment_id: str, db: Session = Depends(get_db)) -> CommentDetai
         raise HTTPException(status_code=404, detail={"code": "comment_not_found"})
 
     detail = CommentDetailRead.model_validate(comment)
-    links = db.execute(
-        select(CommentIssue).where(CommentIssue.comment_id == comment.id)
-    ).scalars().all()
+    links = (
+        db.execute(select(CommentIssue).where(CommentIssue.comment_id == comment.id))
+        .scalars()
+        .all()
+    )
     detail.issues = [_comment_issue_read(link, comment.body) for link in links]
 
-    revisions = db.execute(
-        select(CommentRevision)
-        .where(CommentRevision.comment_id == comment.id)
-        .order_by(CommentRevision.version.asc())
-    ).scalars().all()
+    revisions = (
+        db.execute(
+            select(CommentRevision)
+            .where(CommentRevision.comment_id == comment.id)
+            .order_by(CommentRevision.version.asc())
+        )
+        .scalars()
+        .all()
+    )
     detail.revisions = [CommentRevisionRead.model_validate(rev) for rev in revisions]
 
-    latest_run = db.execute(
-        select(AnalysisRun)
-        .where(AnalysisRun.comment_id == comment.id)
-        .order_by(AnalysisRun.id.desc())
-        .limit(1)
-    ).scalars().first()
-    
+    latest_run = (
+        db.execute(
+            select(AnalysisRun)
+            .where(AnalysisRun.comment_id == comment.id)
+            .order_by(AnalysisRun.id.desc())
+            .limit(1)
+        )
+        .scalars()
+        .first()
+    )
+
     if latest_run is not None:
         output = latest_run.output_json or {}
-        detail.latest_analysis_run = AnalysisRunRead.model_validate(
-            latest_run
-        ).model_copy(update={
-            "source": output.get("source"),
-            "fallback_reason": output.get("fallback_reason"),
-            "llm_attempts": output.get("llm_attempts", 0),
-        })
+        detail.latest_analysis_run = AnalysisRunRead.model_validate(latest_run).model_copy(
+            update={
+                "source": output.get("source"),
+                "fallback_reason": output.get("fallback_reason"),
+                "llm_attempts": output.get("llm_attempts", 0),
+            }
+        )
     return detail
 
 
@@ -507,7 +595,13 @@ def list_issues(
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[IssueRead]:
-    stmt = select(Issue).order_by(Issue.updated_at.desc()).limit(limit).offset(offset)
+    stmt = (
+        select(Issue)
+        .where(visible_issue())
+        .order_by(Issue.updated_at.desc())
+        .limit(limit)
+        .offset(offset)
+    )
     if product_id:
         stmt = stmt.where(Issue.product_id == product_id)
     if status:
@@ -529,22 +623,32 @@ def read_issue(issue_id: str, db: Session = Depends(get_db)) -> IssueDetailRead:
     detail.suggested_count = counts.get("suggested", 0)
     detail.accepted_count = counts.get("accepted", 0)
 
-    links = db.execute(
-        select(CommentIssue).where(CommentIssue.issue_id == issue.id)
-    ).scalars().all()
-    bodies = {
-        comment.id: comment.body
-        for comment in db.execute(
-            select(Comment).where(Comment.id.in_([link.comment_id for link in links]))
-        ).scalars().all()
-    } if links else {}
+    links = (
+        db.execute(select(CommentIssue).where(CommentIssue.issue_id == issue.id)).scalars().all()
+    )
+    bodies = (
+        {
+            comment.id: comment.body
+            for comment in db.execute(
+                select(Comment).where(Comment.id.in_([link.comment_id for link in links]))
+            )
+            .scalars()
+            .all()
+        }
+        if links
+        else {}
+    )
     detail.links = [_comment_issue_read(link, bodies.get(link.comment_id)) for link in links]
 
-    actions = db.execute(
-        select(IssueAction)
-        .where(IssueAction.issue_id == issue.id)
-        .order_by(IssueAction.created_at.asc())
-    ).scalars().all()
+    actions = (
+        db.execute(
+            select(IssueAction)
+            .where(IssueAction.issue_id == issue.id)
+            .order_by(IssueAction.created_at.asc())
+        )
+        .scalars()
+        .all()
+    )
     detail.actions = [IssueActionRead.model_validate(action) for action in actions]
     return detail
 
@@ -568,7 +672,9 @@ def read_stats(
     comment_counts = dict(
         db.execute(
             select(Comment.analysis_status, func.count())
-            .where(Comment.product_id == product_id if product_id else text("1=1"))
+            .where(
+                visible_comment(), Comment.product_id == product_id if product_id else text("1=1")
+            )
             .group_by(Comment.analysis_status)
         ).all()
     )
@@ -577,8 +683,14 @@ def read_stats(
         stmt = (
             select(func.count(func.distinct(CommentIssue.comment_id)))
             .select_from(CommentIssue)
+            .join(Comment, Comment.id == CommentIssue.comment_id)
             .join(Issue, Issue.id == CommentIssue.issue_id)
-            .where(CommentIssue.status == status, CommentIssue.superseded_at.is_(None))
+            .where(
+                visible_issue(),
+                visible_comment(),
+                CommentIssue.status == status,
+                CommentIssue.superseded_at.is_(None),
+            )
         )
         if origin:
             stmt = stmt.where(CommentIssue.origin == origin)

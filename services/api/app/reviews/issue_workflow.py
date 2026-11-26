@@ -2,6 +2,7 @@
 from collections import Counter
 
 from fastapi import HTTPException
+from services.api.app.batches import visible_issue
 from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 
@@ -101,7 +102,7 @@ def as_workflow(db, issue, *, history=False):
 
 
 def list_issues(db, status, product_id, category_id, query, limit, offset, operator):
-    stmt = select(Issue)
+    stmt = select(Issue).where(visible_issue())
     if status == "merged":
         stmt = stmt.where(Issue.merged_into_id.is_not(None))
     elif status != "all":

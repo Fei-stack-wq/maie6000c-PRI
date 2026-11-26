@@ -1,4 +1,5 @@
 """Transactional task lifecycle. Every final write is fenced by its original claim."""
+
 import logging
 import time
 from dataclasses import dataclass
@@ -10,9 +11,20 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from services.common.locking import lock_issue_groups
+from services.common.classification import can_auto_confirm
 from services.common.models import (
-    AnalysisRun, AnalysisStatus, Comment, CommentIssue, Issue, IssueStatus,
-    Job, JobStatus, LinkOrigin, LinkStatus, utcnow,
+    AnalysisRun,
+    AnalysisStatus,
+    Comment,
+    CommentIssue,
+    Issue,
+    IssueStatus,
+    Job,
+    JobStatus,
+    LinkOrigin,
+    LinkStatus,
+    IngestionBatch,
+    utcnow,
 )
 from services.common.schemas import ExistingIssueRef, GroupingAction, GroupSuggestionResult
 from services.worker.app.analysis import (
@@ -41,32 +53,65 @@ class JobClaim:
     attempts: int
 
 
+def _lock_job_batch(db, job_id):
+    identity = db.scalar(
+        select(Comment.batch_id).join(Job, Job.comment_id == Comment.id).where(Job.id == job_id)
+    )
+    if identity is None:
+        return True
+    batch = db.scalar(
+        select(IngestionBatch)
+        .where(IngestionBatch.id == identity)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return batch is not None and batch.stopped_at is None and batch.deleted_at is None
+
+
 def lock_owned_job(db: Session, claim: JobClaim, now: datetime) -> Job | None:
-    job = db.execute(
-        select(Job).where(Job.id == claim.id).with_for_update()
-    ).scalar_one_or_none()
+    if not _lock_job_batch(db, claim.id):
+        return None
+    job = db.execute(select(Job).where(Job.id == claim.id).with_for_update()).scalar_one_or_none()
     owned = (
-        job is not None and job.status == JobStatus.CLAIMED.value
-        and job.claimed_at is not None and aware(job.claimed_at) == aware(claim.claimed_at)
-        and job.attempts == claim.attempts and job.lease_expires_at is not None
+        job is not None
+        and job.status == JobStatus.CLAIMED.value
+        and job.claimed_at is not None
+        and aware(job.claimed_at) == aware(claim.claimed_at)
+        and job.attempts == claim.attempts
+        and job.lease_expires_at is not None
         and aware(job.lease_expires_at) > aware(now)
     )
     return job if owned else None
 
 
 def claim_next_pending_job(
-    db: Session, settings: WorkerSettings, now: datetime | None = None,
+    db: Session,
+    settings: WorkerSettings,
+    now: datetime | None = None,
 ) -> JobClaim | None:
     now = now or utcnow()
     stmt = (
         select(Job)
+        .join(Comment, Comment.id == Job.comment_id)
+        .join(IngestionBatch, IngestionBatch.id == Comment.batch_id)
         .where(
-            Job.status == JobStatus.PENDING.value, Job.attempts < Job.max_attempts,
+            IngestionBatch.stopped_at.is_(None),
+            IngestionBatch.deleted_at.is_(None),
+            Job.status == JobStatus.PENDING.value,
+            Job.attempts < Job.max_attempts,
             or_(Job.next_attempt_at.is_(None), Job.next_attempt_at <= now),
         )
-        .order_by(Job.created_at, Job.id).with_for_update(skip_locked=True).limit(1)
+        .order_by(Job.created_at, Job.id)
+        .limit(1)
     )
-    job = db.execute(stmt).scalar_one_or_none()
+    candidate = db.execute(stmt).scalar_one_or_none()
+    if candidate is None or not _lock_job_batch(db, candidate.id):
+        return None
+    job = db.execute(
+        stmt.where(Job.id == candidate.id)
+        .with_for_update(of=Job, skip_locked=True)
+        .execution_options(populate_existing=True)
+    ).scalar_one_or_none()
     if job is None:
         return None
     comment = db.execute(
@@ -106,37 +151,54 @@ def _clear_claim(job: Job) -> None:
 
 def _supersede_suggestions(db: Session, comment_id: str) -> None:
     db.execute(
-        update(CommentIssue).where(
+        update(CommentIssue)
+        .where(
             CommentIssue.comment_id == comment_id,
             CommentIssue.origin == LinkOrigin.AI.value,
-            CommentIssue.status == LinkStatus.SUGGESTED.value,
-            CommentIssue.decided_at.is_(None), CommentIssue.decided_by.is_(None),
+            or_(
+                CommentIssue.status == LinkStatus.SUGGESTED.value,
+                CommentIssue.auto_confirmed.is_(True),
+            ),
+            CommentIssue.decided_at.is_(None),
+            CommentIssue.decided_by.is_(None),
             CommentIssue.superseded_at.is_(None),
-        ).values(
-            superseded_at=utcnow(), review_version=CommentIssue.review_version + 1,
+        )
+        .values(
+            superseded_at=utcnow(),
+            review_version=CommentIssue.review_version + 1,
         )
     )
 
 
 def _record_run(
-    db: Session, claim: JobClaim, snapshot: AnalysisInput, status: str,
-    latency_ms: int, verified: VerifiedAnalysis | None = None, error_code: str | None = None,
+    db: Session,
+    claim: JobClaim,
+    snapshot: AnalysisInput,
+    status: str,
+    latency_ms: int,
+    verified: VerifiedAnalysis | None = None,
+    error_code: str | None = None,
 ) -> AnalysisRun:
     result = verified.result if verified else None
     output = result.model_dump(mode="json") if result else {}
     output["_worker"] = {
-        "attempt": claim.attempts, "claimed_at": claim.claimed_at.isoformat(),
+        "attempt": claim.attempts,
+        "claimed_at": claim.claimed_at.isoformat(),
         "input_revision_id": snapshot.revision_id,
     }
     if verified:
         output["_worker"]["invalid_evidence_count"] = verified.invalid_evidence_count
     run = AnalysisRun(
-        job_id=claim.id, comment_id=snapshot.comment_id,
+        job_id=claim.id,
+        comment_id=snapshot.comment_id,
         model_version=result.model_version if result else "unknown",
         prompt_version=result.prompt_version if result else "unknown",
         category_version=result.category_version if result else "unknown",
-        input_hash=snapshot.input_hash, output_json=output, status=status,
-        error_code=error_code, latency_ms=latency_ms,
+        input_hash=snapshot.input_hash,
+        output_json=output,
+        status=status,
+        error_code=error_code,
+        latency_ms=latency_ms,
     )
     db.add(run)
     db.flush()
@@ -173,16 +235,23 @@ def _requeue_changed_input(db: Session, job: Job, comment: Comment) -> None:
 
 
 def _group_lock(db: Session, snapshot: AnalysisInput, category: str) -> None:
-    lock_issue_groups(db, snapshot.platform, snapshot.shop_id, snapshot.product_id,
-                      {category} if isinstance(category, str) else category)
+    lock_issue_groups(
+        db,
+        snapshot.platform,
+        snapshot.shop_id,
+        snapshot.product_id,
+        {category} if isinstance(category, str) else category,
+    )
 
 
 def _active_issues_select(snapshot: AnalysisInput, category_id: str):
     return (
         select(Issue)
         .where(
-            Issue.platform == snapshot.platform, Issue.shop_id == snapshot.shop_id,
+            Issue.platform == snapshot.platform,
+            Issue.shop_id == snapshot.shop_id,
             Issue.product_id == snapshot.product_id,
+            Issue.batch_id == snapshot.batch_id,
             Issue.category_id == category_id,
             Issue.merged_into_id.is_(None),
             Issue.status.in_([IssueStatus.PROPOSED.value, IssueStatus.CONFIRMED.value]),
@@ -192,13 +261,17 @@ def _active_issues_select(snapshot: AnalysisInput, category_id: str):
 
 
 def _list_active_issues_readonly(
-    db: Session, snapshot: AnalysisInput, category_id: str,
+    db: Session,
+    snapshot: AnalysisInput,
+    category_id: str,
 ) -> list[Issue]:
     return list(db.execute(_active_issues_select(snapshot, category_id)).scalars().all())
 
 
 def _list_active_issues_locked(
-    db: Session, snapshot: AnalysisInput, category_id: str,
+    db: Session,
+    snapshot: AnalysisInput,
+    category_id: str,
 ) -> list[Issue]:
     return list(
         db.execute(_active_issues_select(snapshot, category_id).with_for_update()).scalars().all()
@@ -259,13 +332,21 @@ def _request_group_suggestion(
 
 
 def _new_proposed_issue(
-    db: Session, snapshot: AnalysisInput, category_id: str, candidate_text: str,
+    db: Session,
+    snapshot: AnalysisInput,
+    category_id: str,
+    candidate_text: str,
 ) -> Issue:
     issue = Issue(
-        platform=snapshot.platform, shop_id=snapshot.shop_id,
-        product_id=snapshot.product_id, category_id=category_id,
-        title=candidate_text[:120], description=candidate_text,
-        status=IssueStatus.PROPOSED.value, created_by="ai",
+        platform=snapshot.platform,
+        shop_id=snapshot.shop_id,
+        product_id=snapshot.product_id,
+        category_id=category_id,
+        batch_id=snapshot.batch_id,
+        title=candidate_text[:120],
+        description=candidate_text,
+        status=IssueStatus.PROPOSED.value,
+        created_by="ai",
     )
     db.add(issue)
     db.flush()
@@ -294,8 +375,11 @@ def _grouping_hint_record(
 
 
 def prepare_grouping_plan(
-    db: Session, snapshot: AnalysisInput, verified: VerifiedAnalysis,
-    ai_service_url: str | None, timeout: float,
+    db: Session,
+    snapshot: AnalysisInput,
+    verified: VerifiedAnalysis,
+    ai_service_url: str | None,
+    timeout: float,
 ) -> dict:
     """Resolve remote hints before acquiring job, category or evidence write locks."""
     plan = {}
@@ -303,8 +387,12 @@ def prepare_grouping_plan(
         extracted = entry.issue
         candidates = _list_active_issues_readonly(db, snapshot, extracted.category_id)
         suggestion, elapsed, reason = _request_group_suggestion(
-            snapshot, extracted.category_id, extracted.description or extracted.evidence_text,
-            candidates, ai_service_url, timeout,
+            snapshot,
+            extracted.category_id,
+            extracted.description or extracted.evidence_text,
+            candidates,
+            ai_service_url,
+            timeout,
         )
         plan[extracted.category_id] = (suggestion, elapsed, reason, len(candidates))
     return plan
@@ -338,6 +426,7 @@ def _select_issue_for_extracted(
                 latency_s=latency_s,
                 candidate_count=candidate_count,
             )
+            hint["requires_review"] = suggestion.requires_review
             return by_id[suggestion.issue_id], suggestion.similarity, hint
         if suggestion.action == GroupingAction.CREATE_NEW:
             issue = _new_proposed_issue(db, snapshot, category_id, candidate_text)
@@ -350,6 +439,7 @@ def _select_issue_for_extracted(
                 latency_s=latency_s,
                 candidate_count=candidate_count,
             )
+            hint["requires_review"] = suggestion.requires_review
             return issue, suggestion.similarity, hint
         if suggestion.action == GroupingAction.LINK_EXISTING and suggestion.issue_id:
             logger.warning(
@@ -358,7 +448,14 @@ def _select_issue_for_extracted(
             )
             fail_reason = fail_reason or "stale_issue_id"
 
-    baseline = _category_baseline_pick(candidates)
+    baseline = next(
+        (
+            item
+            for item in candidates
+            if item.title.casefold().strip() == candidate_text.casefold().strip()
+        ),
+        None,
+    )
     if baseline is not None:
         hint = _grouping_hint_record(
             category_id=category_id,
@@ -377,7 +474,7 @@ def _select_issue_for_extracted(
         action="create_new",
         issue_id=issue.id,
         similarity=None,
-        fallback=fail_reason or "no_baseline",
+        fallback=None if fail_reason == "no_candidates" else (fail_reason or "no_baseline"),
         latency_s=latency_s,
         candidate_count=candidate_count,
     )
@@ -395,7 +492,11 @@ def save_issue_links(
 ) -> None:
     if grouping_plan is None:
         grouping_plan = prepare_grouping_plan(
-            db, snapshot, verified, ai_service_url, request_timeout_seconds,
+            db,
+            snapshot,
+            verified,
+            ai_service_url,
+            request_timeout_seconds,
         )
     # Human operations use the same sorted category locks, before touching links.
     _group_lock(db, snapshot, {entry.issue.category_id for entry in verified.issues})
@@ -406,29 +507,44 @@ def save_issue_links(
         extracted = entry.issue
         candidate_text = extracted.description or extracted.evidence_text
         issue, similarity, hint = _select_issue_for_extracted(
-            db, snapshot, extracted.category_id, candidate_text,
-            ai_service_url, request_timeout_seconds, grouping_plan[extracted.category_id],
+            db,
+            snapshot,
+            extracted.category_id,
+            candidate_text,
+            ai_service_url,
+            request_timeout_seconds,
+            grouping_plan[extracted.category_id],
         )
         grouping_hints.append(hint)
         if issue.id in seen:
             continue
         seen.add(issue.id)
         link = db.execute(
-            select(CommentIssue).where(
-                CommentIssue.comment_id == snapshot.comment_id, CommentIssue.issue_id == issue.id,
-            ).with_for_update()
+            select(CommentIssue)
+            .where(
+                CommentIssue.comment_id == snapshot.comment_id,
+                CommentIssue.issue_id == issue.id,
+            )
+            .with_for_update()
         ).scalar_one_or_none()
         if link is not None and (
-            link.status in (LinkStatus.ACCEPTED.value, LinkStatus.REJECTED.value)
+            (
+                link.status in (LinkStatus.ACCEPTED.value, LinkStatus.REJECTED.value)
+                and not link.auto_confirmed
+            )
             or link.origin == LinkOrigin.HUMAN.value
-            or link.decided_at is not None or link.decided_by is not None
+            or link.decided_at is not None
+            or link.decided_by is not None
         ):
             continue
         if link is None:
             link = CommentIssue(comment_id=snapshot.comment_id, issue_id=issue.id)
             db.add(link)
         link.review_version = (link.review_version or 0) + 1
-        link.status = LinkStatus.SUGGESTED.value
+        link.auto_confirmed = can_auto_confirm(extracted, verified, hint, candidate_text)
+        link.status = (
+            LinkStatus.ACCEPTED.value if link.auto_confirmed else LinkStatus.SUGGESTED.value
+        )
         link.origin = LinkOrigin.AI.value
         link.evidence_text = extracted.evidence_text
         link.evidence_start = entry.start
@@ -443,13 +559,21 @@ def save_issue_links(
 
 
 def complete_job(
-    db: Session, claim: JobClaim, snapshot: AnalysisInput,
-    verified: VerifiedAnalysis, latency_ms: int, now: datetime | None = None,
+    db: Session,
+    claim: JobClaim,
+    snapshot: AnalysisInput,
+    verified: VerifiedAnalysis,
+    latency_ms: int,
+    now: datetime | None = None,
     ai_service_url: str | None = None,
     request_timeout_seconds: float = 20.0,
 ) -> str:
     grouping_plan = prepare_grouping_plan(
-        db, snapshot, verified, ai_service_url, request_timeout_seconds,
+        db,
+        snapshot,
+        verified,
+        ai_service_url,
+        request_timeout_seconds,
     )
     job = lock_owned_job(db, claim, now or utcnow())
     if job is None:
@@ -463,9 +587,13 @@ def complete_job(
         return "input_changed"
     run = _record_run(db, claim, snapshot, "succeeded", latency_ms, verified)
     save_issue_links(
-        db, snapshot, verified, run.id,
+        db,
+        snapshot,
+        verified,
+        run.id,
         ai_service_url=ai_service_url,
-        request_timeout_seconds=request_timeout_seconds, grouping_plan=grouping_plan,
+        request_timeout_seconds=request_timeout_seconds,
+        grouping_plan=grouping_plan,
     )
     comment.analysis_status = AnalysisStatus.ANALYZED.value
     comment.has_issue = verified.has_issue
@@ -482,8 +610,12 @@ def complete_job(
 
 
 def handle_job_failure(
-    db: Session, claim: JobClaim, snapshot: AnalysisInput | None,
-    failure: Failure, settings: WorkerSettings, latency_ms: int = 0,
+    db: Session,
+    claim: JobClaim,
+    snapshot: AnalysisInput | None,
+    failure: Failure,
+    settings: WorkerSettings,
+    latency_ms: int = 0,
     now: datetime | None = None,
 ) -> str:
     now = now or utcnow()
@@ -517,32 +649,46 @@ def handle_job_failure(
     )
     job.completed_at = None if retry else now
     _clear_claim(job)
-    comment.analysis_status = (
-        AnalysisStatus.QUEUED.value if retry else AnalysisStatus.FAILED.value
-    )
+    comment.analysis_status = AnalysisStatus.QUEUED.value if retry else AnalysisStatus.FAILED.value
     comment.analysis_error = failure.message
     db.commit()
     return "retry_scheduled" if retry else "failed"
 
 
 def recover_stale_jobs(
-    db: Session, settings: WorkerSettings, now: datetime | None = None,
+    db: Session,
+    settings: WorkerSettings,
+    now: datetime | None = None,
 ) -> int:
     now = now or utcnow()
-    stale = db.execute(
-        select(Job).where(or_(
-            and_(
-                Job.status == JobStatus.CLAIMED.value, Job.lease_expires_at <= now,
-            ),
-            and_(Job.status == JobStatus.PENDING.value, Job.attempts >= Job.max_attempts),
-        )).order_by(Job.id).with_for_update(skip_locked=True).limit(settings.recovery_limit)
-    ).scalars().all()
+    stale = (
+        db.execute(
+            select(Job)
+            .where(
+                or_(
+                    and_(
+                        Job.status == JobStatus.CLAIMED.value,
+                        Job.lease_expires_at <= now,
+                    ),
+                    and_(Job.status == JobStatus.PENDING.value, Job.attempts >= Job.max_attempts),
+                )
+            )
+            .order_by(Job.id)
+            .with_for_update(skip_locked=True)
+            .limit(settings.recovery_limit)
+        )
+        .scalars()
+        .all()
+    )
     for job in stale:
         comment = db.execute(
             select(Comment).where(Comment.id == job.comment_id).with_for_update()
         ).scalar_one_or_none()
-        if (comment is not None and job.status == JobStatus.CLAIMED.value
-                and comment.analysis_status == AnalysisStatus.QUEUED.value):
+        if (
+            comment is not None
+            and job.status == JobStatus.CLAIMED.value
+            and comment.analysis_status == AnalysisStatus.QUEUED.value
+        ):
             _requeue_changed_input(db, job, comment)
             continue
         retry = job.attempts < job.max_attempts and comment is not None

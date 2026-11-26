@@ -158,11 +158,12 @@ def test_suggest_failure_falls_back_to_category_baseline(
         )
         db.commit()
         link = db.query(CommentIssue).one()
-        assert link.issue_id == earliest
+        assert link.issue_id != earliest
+        assert link.status == "suggested"
         assert link.similarity is None
-        assert db.query(Issue).count() == 1
+        assert db.query(Issue).count() == 2
         hints = (db.get(AnalysisRun, run_id).output_json or {}).get("grouping_hints")
-        assert hints and hints[0]["action"] == "category_baseline"
+        assert hints and hints[0]["action"] == "create_new"
         assert hints[0]["fallback"] == "ConnectError"
 
 
@@ -184,7 +185,8 @@ def test_suggest_timeout_falls_back(
             ai_service_url="http://ai.test",
         )
         db.commit()
-        assert db.query(CommentIssue).one().issue_id == earliest
+        assert db.query(CommentIssue).one().issue_id != earliest
+        assert db.query(CommentIssue).one().status == "suggested"
         hints = (db.get(AnalysisRun, run_id).output_json or {}).get("grouping_hints")
         assert hints[0]["fallback"] == "TimeoutException"
 
@@ -208,7 +210,8 @@ def test_suggest_http_503_falls_back(
             ai_service_url="http://ai.test",
         )
         db.commit()
-        assert db.query(CommentIssue).one().issue_id == earliest
+        assert db.query(CommentIssue).one().issue_id != earliest
+        assert db.query(CommentIssue).one().status == "suggested"
         hints = (db.get(AnalysisRun, run_id).output_json or {}).get("grouping_hints")
         assert hints[0]["fallback"] == "HTTPStatusError"
 
@@ -234,7 +237,8 @@ def test_no_ai_url_falls_back_without_http(
         )
         db.commit()
         assert called["n"] == 0
-        assert db.query(CommentIssue).one().issue_id == earliest
+        assert db.query(CommentIssue).one().issue_id != earliest
+        assert db.query(CommentIssue).one().status == "suggested"
         hints = (db.get(AnalysisRun, run_id).output_json or {}).get("grouping_hints")
         assert hints[0]["fallback"] == "no_ai_url"
 
@@ -271,7 +275,8 @@ def test_stale_issue_id_after_revalidation_falls_back(
             ai_service_url="http://ai.test",
         )
         db.commit()
-        assert db.query(CommentIssue).one().issue_id == earliest
+        assert db.query(CommentIssue).one().issue_id != earliest
+        assert db.query(CommentIssue).one().status == "suggested"
         hints = (db.get(AnalysisRun, run_id).output_json or {}).get("grouping_hints")
         assert hints[0]["fallback"] == "stale_issue_id"
 
@@ -337,7 +342,8 @@ def test_invalid_suggested_issue_id_falls_back(
             ai_service_url="http://ai.test",
         )
         db.commit()
-        assert db.query(CommentIssue).one().issue_id == earliest
+        assert db.query(CommentIssue).one().issue_id != earliest
+        assert db.query(CommentIssue).one().status == "suggested"
 
 
 def test_human_accepted_link_is_preserved(

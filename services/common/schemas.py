@@ -128,6 +128,10 @@ class BatchRead(OrmModel):
     platform: str
     source_type: SourceType
     file_ref: str | None = None
+    legacy_incomplete: bool = False
+    unfinished_rows: int = 0
+    stopped_at: datetime | None = None
+    deleted_at: datetime | None = None
     declared_rows: int | None = None
     accepted_rows: int = 0
     duplicate_rows: int = 0
@@ -150,6 +154,7 @@ class BatchProgressRead(BaseModel):
     processing_rows: int = 0
     current_rows: int = 0
     waiting_rows: int = 0
+    cancelled_rows: int = 0
     failed_jobs: int = 0
     analysis_coverage: float | None = None
     scope: QueryScope
@@ -166,6 +171,7 @@ class BatchErrorRead(OrmModel):
 # Comment contracts
 # ---------------------------------------------------------------------------
 class CommentIssueRead(OrmModel):
+    auto_confirmed: bool = False
     id: int
     comment_id: str
     issue_id: str
@@ -211,6 +217,7 @@ class AnalysisRunRead(OrmModel):
 
 
 class CommentRead(OrmModel):
+    issue_categories: list[str] = Field(default_factory=list)
     id: str
     platform: str
     shop_id: str
@@ -237,6 +244,7 @@ class CommentDetailRead(CommentRead):
 # Issue contracts
 # ---------------------------------------------------------------------------
 class IssueRead(OrmModel):
+    batch_id: str | None = None
     id: str
     platform: str
     shop_id: str
@@ -373,6 +381,7 @@ class ExtractionRequest(BaseModel):
 
 
 class ExtractedIssue(BaseModel):
+    confidence: float | None = Field(default=None, ge=0, le=1)
     category_id: str = Field(min_length=1, max_length=40)
     description: str = Field(min_length=1, max_length=500)
     evidence_text: str = Field(min_length=1, max_length=500)
@@ -442,6 +451,7 @@ class GroupSuggestionRequest(BaseModel):
 
 
 class GroupSuggestionResult(BaseModel):
+    requires_review: bool = False
     action: GroupingAction
     issue_id: str | None = None
     similar_issue_ids: list[str] = Field(default_factory=list)

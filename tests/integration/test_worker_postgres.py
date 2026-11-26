@@ -294,16 +294,17 @@ def test_api_body_update_during_ai_call_is_reanalyzed(
             }],
         })
         assert response.status_code == 202
-        assert response.json()["job_count"] == 0  # The old claim is still active.
+        assert response.json()["job_count"] == 1  # The new batch gets its own task.
         return normal(url, json, timeout)
 
     monkeypatch.setattr(httpx, "post", update_during_call)
-    assert worker_setup.process_job(old) == "input_changed"
+    assert worker_setup.process_job(old) == "completed"
     monkeypatch.setattr(httpx, "post", normal)
     assert worker_setup.process_job(claim(session_factory, worker_settings)) == "completed"
     with session_factory() as db:
-        assert db.get(Comment, comment_id).has_issue == "no"
-        assert db.query(Job).count() == 1
+        assert db.get(Comment, comment_id).has_issue == "yes"
+        assert db.query(Comment).filter(Comment.id != comment_id).one().has_issue == "no"
+        assert db.query(Job).count() == 2
         assert db.query(AnalysisRun).count() == 2
 
 
@@ -634,11 +635,12 @@ def test_manual_addition_and_source_import_serialize_on_comment(
         saved = h.result(timeout=12)
         assert source.result(timeout=12).status_code == 202
     with session_factory() as db:
-        assert db.get(Comment, c["id"]).body == "售后已经解决问题。"
+        assert db.get(Comment, c["id"]).body == c["body"]
+        assert db.query(Comment).filter(Comment.id != c["id"]).one().body == "售后已经解决问题。"
         assert db.query(CommentIssue).count() == (1 if saved else 0)
     if saved:
         detail = client.get(f"/comment-issues/{saved.link_id}").json()
-        assert not detail["can_revise"] and detail["revision_blocked_reason"] == "source_changed"
+        assert detail["can_revise"] and detail["revision_blocked_reason"] is None
         assert detail["actions"][0]["payload_json"]["snapshot"]["body"] == c["body"]
 
 
@@ -1015,8 +1017,9 @@ def test_recheck_and_new_source_import_do_not_accept_the_wrong_snapshot(
         result = first.result(timeout=12)
         assert second.result(timeout=12).status_code == 202
     current = client.get(f"/comment-issues/{item['link']['id']}").json()
-    assert current["needs_recheck"] and not current["can_recheck"]
-    assert current["comment"]["body"] == "第三次更新：拉链问题已经解决。"
+    assert result is not None
+    assert not current["needs_recheck"] and not current["can_recheck"]
+    assert current["comment"]["body"] == c["body"]
     if result:
         assert current["actions"][0]["payload_json"]["after"]["body"] == c["body"]
 
@@ -1092,3 +1095,42 @@ def test_recheck_and_group_confirmation_cannot_commit_two_old_snapshots(
     with ThreadPoolExecutor(max_workers=2) as pool:
         futures = [pool.submit(submit, mode) for mode in ("recheck", "confirm")]
         assert sorted(f.result(timeout=12) for f in futures) == [200, 409]
+
+
+def test_stop_and_result_commit_have_one_batch_cutoff(
+    client, new_job, worker_setup, session_factory, ai_response, monkeypatch,
+):
+    """A result already saving commits first; stop cancels everything after it."""
+    first_job, _, batch = new_job()
+    new_job(body='快递慢。')
+    locked, release = threading.Event(), threading.Event()
+    real = jobs.lock_owned_job
+
+    def hold_final_save(db, claim, now):
+        found = real(db, claim, now)
+        # load_input_for_claim also calls this; hold only at final completion.
+        if found is not None and db.info.get('hold_batch_save'):
+            locked.set()
+            assert release.wait(timeout=8)
+        return found
+
+    complete = jobs.complete_job
+
+    def fenced_complete(db, *args, **kwargs):
+        db.info['hold_batch_save'] = True
+        return complete(db, *args, **kwargs)
+
+    monkeypatch.setattr(jobs, 'lock_owned_job', hold_final_save)
+    monkeypatch.setattr(jobs, 'complete_job', fenced_complete)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        work = pool.submit(worker_setup.run_once)
+        assert locked.wait(timeout=8)
+        stop = pool.submit(client.post, f'/review-batches/{batch}/stop')
+        release.set()
+        assert work.result(timeout=12) == 'completed'
+        assert stop.result(timeout=12).status_code == 200
+    progress = client.get(f'/review-batches/{batch}').json()
+    assert progress['analyzed_rows'] == progress['cancelled_rows'] == 1
+    with session_factory() as db:
+        assert db.get(Job, first_job).status == 'completed'
+    assert worker_setup.run_once() == 'idle'

@@ -118,6 +118,8 @@ def require_access(request: Request, db: Session = Depends(get_db)) -> Principal
         check_csrf(request, identity)
         if identity.role != "reviewer":
             raise HTTPException(403, detail={"code": "review_permission_denied"})
+    from services.api.app.batches import guard_resource
+    guard_resource(request, db)
     return identity
 
 

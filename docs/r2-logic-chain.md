@@ -1,5 +1,10 @@
 # R2 Execution Chain / R2 运行链条
 
+Historical implementation note. Current batch boundaries, cancellation and automatic grouping: [architecture](architecture.md).
+
+历史实现记录。当前批次隔离、取消和自动归组规则见[系统架构](architecture.md)。
+
+
 ## English
 
 Function names include their files. `api/main.py`, `worker/main.py` and `ai/main.py` refer to

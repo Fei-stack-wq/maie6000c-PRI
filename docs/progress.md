@@ -1,24 +1,54 @@
 # Development Progress / 开发进度
 
-## English — integrated state, 26 November 2026
+## English — integrated state, 27 November 2026
 
-`integrate_v1` combines the model/frontend branch with semantic grouping and human review. The default UI uses the team's modular workbench; original static and previous read-only versions remain archived. Model attempts are limited to three before marked rule fallback; absent configuration uses rules without a provider request. Source, fallback reason and model attempts are shown in comment details.
+`integrate_v1` includes CSV ingestion, model extraction with three attempts before rule fallback,
+semantic grouping, human review and the bilingual workbench. Each upload has its own review
+occurrences, analysis results and issue groups, even when source IDs repeat across batches.
 
-The integrated path is CSV import → persisted reviews/jobs → model/rule extraction → semantic grouping → saved evidence → human review → issue follow-up. Review/version protection, sessions, manual evidence, rechecks and merge/split are retained. Completed historic imports are not automatically regrouped.
+The workflow is CSV → batch reviews/jobs → extraction → evidence checks → grouping → saved
+results → review and follow-up. The issue page shows batch → product → category, with grouped
+entries above entries needing confirmation. Clear, evidence-backed model results can be assigned
+automatically; uncertainty, rule fallback and ambiguous matches remain pending. Human decisions
+survive background reruns. Assignment and issue follow-up status are separate.
 
-Verification so far: 446 Python unit/integration tests passed against isolated PostgreSQL, including the added key-free retries; 12 frontend tests passed. Migrations through `20261121_0006` and `alembic check` passed. See [integration verification](integrate-v1-verification.md) for live checks and exact limits. These local results do not imply remote CI or unrestricted model accuracy.
+Batches can be stopped, moved to trash, restored or permanently deleted. Stopping preserves
+completed results and cancels unfinished work; late responses cannot overwrite the cutoff.
+Restoring does not resume cancelled work. Batch and product selectors support multiple or all
+selections, with product choices following the selected batches. Size/fit is “Not as described”;
+price/value is “Other”. The five categories remain unchanged.
 
-Remaining work: representative quality evaluation, real-platform ingestion adapters as required by the team, and operator-driven failed-job replay. Review extraction still permits at most one issue per category per review.
+Schema head: `20261126_0010`. A one-time local repair separates and normalizes unreviewed legacy
+groups using saved extraction output, without another model call. Human-reviewed groups remain
+unchanged. Older outputs without confidence remain pending; missing historical batch occurrences
+are flagged rather than reconstructed. Verification results are recorded in
+[integration verification](integrate-v1-verification.md).
 
-## 中文——2026 年 11 月 26 日整合状态
+Remaining work includes representative analysis-quality evaluation, required real-platform
+adapters and operator-driven failed-job replay. Extraction still permits one issue per category
+per review. Automated tests establish workflow behavior, not accuracy on every possible review.
 
-`integrate_v1` 已整合模型／前端、语义归组和人工复核。默认入口采用组员的模块化工作台，原静态设计和上次只读前端单独归档。模型最多尝试三次后回退规则；缺少配置时不发送外部请求。评论详情显示来源、回退原因及模型尝试次数。
+## 中文——2026 年 11 月 27 日整合状态
 
-整合流程为 CSV 导入 → 评论／任务落库 → 模型／规则提取 → 语义归组 → 保存证据 → 人工复核 → 问题跟进。保留复核版本保护、会话身份、人工证据、原文重核和合并／拆分。已完成的历史批次不会自动重新归组。
+`integrate_v1` 包含 CSV 导入、最多三次尝试后回退规则的模型提取、语义归组、人工复核和
+中英文工作台。每次上传分别保存评论、分析结果和问题组；不同批次出现相同来源编号也互不覆盖。
 
-已验证：隔离 PostgreSQL 环境中 446 项 Python 单元／集成测试通过，包含新增无密钥重试测试；12 项前端测试通过；数据库迁移到 `20261121_0006` 及 `alembic check` 通过。真实运行检查与限制见[整合验证记录](integrate-v1-verification.md)。这些本地结果不代表远端 CI 已运行，也不代表不受限评论的模型准确率。
+流程为 CSV → 批次评论／任务 → 提取 → 证据检查 → 归组 → 保存结果 → 人工复核和跟进。
+问题页按批次 → 商品 → 类别展示，已归组内容在上，待确认内容在下。明确且有原文证据的模型结果
+可以自动归组；不确定、规则回退或匹配含糊的结果保留待确认。后台重跑保留人工决定。
+“评论归入哪个组”与“问题是否已跟进、解决”分别管理。
 
-后续工作：代表性质量评测、团队需要的真实平台数据适配、人工发起失败任务重放。提取器目前每条评论每个类别最多一个问题。
+批次支持停止、移入回收站、恢复和永久删除。停止保留已完成结果、取消未完成任务，迟到响应
+不能覆盖停止后的状态；恢复不会重新启动已取消任务。批次和商品支持多选或全部，商品选项随
+批次选择联动。尺码／大小归入“描述不符”，价格归入“其他”，仍使用原有五类。
+
+数据库版本为 `20261126_0010`。启动时根据已保存的提取结果，对尚未人工复核的旧分组执行一次
+拆分与类别整理，不重新调用模型；人工复核过的组保持原样。旧结果没有置信度时继续待确认，
+旧版没有保存下来的历史批次记录会标注缺失，不凭空补造。检查结果见
+[整合验证记录](integrate-v1-verification.md)。
+
+后续仍包括代表性分析质量评测、需要的真实平台接口和人工发起失败任务重放。提取器目前每条
+评论每个类别最多一个问题。自动测试验证流程行为，不代表能够正确判断所有评论。
 
 ---
 

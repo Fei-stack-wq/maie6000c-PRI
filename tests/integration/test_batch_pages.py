@@ -84,25 +84,22 @@ def test_same_key_with_changed_payload_conflicts_instead_of_replaying_wrong_batc
     assert client.get('/review-batches').headers['x-total-count'] == '1'
 
 
-def test_revised_comment_uses_current_rows_for_coverage_even_with_older_pending_job(
-    client, session_factory,
-):
+
+def test_repeated_source_has_independent_batch_coverage(client, session_factory):
     header = 'shop_id,product_id,source_review_id,body\n'
     first = upload(client, csv_text=header + 's,p,r,original').json()['batch_id']
     second = upload(client, csv_text=header + 's,p,r,updated').json()['batch_id']
     changed = client.get(f'/review-batches/{second}').json()
-    assert changed['batch']['accepted_rows'] == 0 and changed['batch']['duplicate_rows'] == 1
-    assert changed['job_count'] == 0  # Existing active job stays attached to its original batch.
-    assert changed['current_rows'] == changed['waiting_rows'] == 1
-    assert changed['status'] == 'imported' and changed['analysis_coverage'] == 0
+    assert changed['batch']['accepted_rows'] == 1 and changed['batch']['duplicate_rows'] == 0
+    assert changed['job_count'] == changed['current_rows'] == changed['waiting_rows'] == 1
     with session_factory() as db:
-        db.query(Comment).one().analysis_status = 'analyzed'
-        db.query(Job).one().status = 'completed'
+        db.query(Comment).filter_by(batch_id=second).one().analysis_status = 'analyzed'
+        db.query(Job).filter_by(batch_id=second).one().status = 'completed'
         db.commit()
     done = client.get(f'/review-batches/{second}').json()
     assert done['status'] == 'completed' and done['analysis_coverage'] == 1
-    assert client.get(f'/review-batches/{first}').json()['analysis_coverage'] is None
-    assert client.get('/comments', params={'batch_id': first}).json() == []
+    assert client.get(f'/review-batches/{first}').json()['analysis_coverage'] == 0
+    assert client.get('/comments', params={'batch_id': first}).json()[0]['body'] == 'original'
 
 
 def test_failed_job_does_not_appear_as_success_when_source_moved(client, session_factory):
@@ -110,9 +107,9 @@ def test_failed_job_does_not_appear_as_success_when_source_moved(client, session
     original = upload(client, csv_text=header + 's,p,r,original').json()['batch_id']
     upload(client, csv_text=header + 's,p,r,updated')
     with session_factory() as db:
-        db.query(Job).one().status = 'failed'
-        db.query(Comment).one().analysis_status = 'failed'
+        db.query(Job).filter_by(batch_id=original).one().status = 'failed'
+        db.query(Comment).filter_by(batch_id=original).one().analysis_status = 'failed'
         db.commit()
     detail = client.get(f'/review-batches/{original}').json()
-    assert detail['current_rows'] == 0 and detail['failed_jobs'] == 1
+    assert detail['current_rows'] == 1 and detail['failed_jobs'] == 1
     assert detail['status'] == 'partially_failed'

@@ -67,6 +67,7 @@ def recheck(db, link_id, payload, operator):
     now = utcnow()
     try:
         link.status, link.origin = next_status, "human"
+        link.auto_confirmed = False
         link.evidence_text = payload.evidence_text
         link.evidence_start, link.evidence_end = payload.evidence_start, payload.evidence_end
         link.evidence_verified = payload.evidence_text is not None

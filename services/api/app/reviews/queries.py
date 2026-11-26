@@ -7,6 +7,7 @@ from services.api.app.reviews.rules import (
     recheck_blocked_reason, review_token,
 )
 from services.api.app.reviews.history import evidence_body
+from services.api.app.batches import visible_comment, visible_issue
 from services.common.models import AnalysisRun, Comment, CommentIssue, Issue, IssueAction
 from services.common.schemas import (
     CommentIssueRead, CommentRead, IssueActionRead, IssueRead, ReviewRead,
@@ -17,7 +18,8 @@ def context_query():
     return (select(CommentIssue, Comment, Issue, AnalysisRun)
             .join(Comment, Comment.id == CommentIssue.comment_id)
             .join(Issue, Issue.id == CommentIssue.issue_id)
-            .outerjoin(AnalysisRun, AnalysisRun.id == CommentIssue.analysis_run_id))
+            .outerjoin(AnalysisRun, AnalysisRun.id == CommentIssue.analysis_run_id)
+            .where(visible_comment(), visible_issue()))
 
 
 def as_review(db: Session, row, history: bool = False) -> ReviewRead:

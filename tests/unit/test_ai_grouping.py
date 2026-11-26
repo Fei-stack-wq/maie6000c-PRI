@@ -266,11 +266,11 @@ def test_normalize_is_language_general_only():
 
 def test_top2_margin_blocks_ambiguous_best():
     stuck = ExistingIssueRef(id="issue-stuck", title="卡住", description="拉链卡住")
-    seam = ExistingIssueRef(id="issue-seam", title="开线", description="侧边开线")
+    seam = ExistingIssueRef(id="issue-seam", title="卡顿", description="拉链卡住不顺畅")
     set_embedder_override(_fixed_embedder({
         "拉链又卡住": [1.0, 0.0],
         "卡住 拉链卡住": [0.92, 0.1],   # cos ≈ 0.994
-        "开线 侧边开线": [0.90, 0.2],   # cos ≈ 0.976; delta ≈ 0.018
+        "卡顿 拉链卡住不顺畅": [0.90, 0.2],   # cos ≈ 0.976; delta ≈ 0.018
     }))
     result = suggest_group_assignment(
         GroupSuggestionRequest(
@@ -286,7 +286,8 @@ def test_top2_margin_blocks_ambiguous_best():
             grouping_keyword_gate=True,
         ),
     )
-    assert result.action == GroupingAction.CREATE_NEW
+    assert result.action == GroupingAction.LINK_EXISTING
+    assert result.requires_review
     assert "top2 margin" in (result.rationale or "").lower()
 
 

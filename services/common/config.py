@@ -27,7 +27,7 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_api_key_header: str = "api-key"
     llm_timeout_seconds: float = Field(default=8.0, gt=0, le=120)
-    llm_prompt_version: str = "review-extraction-v1"
+    llm_prompt_version: str = "review-extraction-v2"
 
     # Semantic grouping (sentence embeddings). Not used for /extract-issues.
     grouping_enabled: bool = True

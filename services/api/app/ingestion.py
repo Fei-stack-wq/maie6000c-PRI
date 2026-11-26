@@ -345,6 +345,7 @@ def ingest_comments(
     counts = IngestCounts()
     for parsed in comments:
         stmt = select(Comment).where(
+            Comment.batch_id == batch.id,
             Comment.platform == parsed.platform,
             Comment.shop_id == parsed.shop_id,
             Comment.product_id == parsed.product_id,

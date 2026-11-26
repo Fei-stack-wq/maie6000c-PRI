@@ -3,18 +3,18 @@
   const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({
     '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
   }[c]));
-  const verdict = s => ({yes: '发现问题', no: '未发现问题', unknown: '无法判断'}[s] || '未完成');
-  const labels = {suggested: '待复核', accepted: '已接受', rejected: '已拒绝'};
+  const verdict = s => ({yes: I18n.t('发现问题'), no: I18n.t('未发现问题'), unknown: I18n.t('无法判断')}[s] || I18n.t('未完成'));
+  const labels = {suggested: I18n.t('待复核'), accepted: I18n.t('已接受'), rejected: I18n.t('已拒绝')};
   const errors = {
-    comment_changed: '原文、分析或关联已变化，请重新加载并核对。',
-    analysis_not_ready: '评论正在等待或进行分析，请完成后再补充。',
-    invalid_evidence: '证据必须逐字对应原文中的所选位置。',
-    target_changed: '目标问题组已变化，请重新搜索并核对。',
-    target_already_reviewed: '这条评论在目标中已有人工决定，请查看原关联。',
-    duplicate_issue: '同类别已有同名有效问题组，请切换到“关联已有问题组”并搜索。',
-    scope_mismatch: '目标必须属于同平台、店铺和商品。',
-    issue_not_active: '目标问题组已关闭或合并，请重新选择。',
-    idempotency_conflict: '提交编号冲突，请重新加载后核对。'
+    comment_changed: I18n.t('原文、分析或关联已变化，请重新加载并核对。'),
+    analysis_not_ready: I18n.t('评论正在等待或进行分析，请完成后再补充。'),
+    invalid_evidence: I18n.t('证据必须逐字对应原文中的所选位置。'),
+    target_changed: I18n.t('目标问题组已变化，请重新搜索并核对。'),
+    target_already_reviewed: I18n.t('这条评论在目标中已有人工决定，请查看原关联。'),
+    duplicate_issue: I18n.t('同类别已有同名有效问题组，请切换到“关联已有问题组”并搜索。'),
+    scope_mismatch: I18n.t('目标必须属于同平台、店铺和商品。'),
+    issue_not_active: I18n.t('目标问题组已关闭或合并，请重新选择。'),
+    idempotency_conflict: I18n.t('提交编号冲突，请重新加载后核对。')
   };
   window.ManualReview = {
     mount(root, hooks) {
@@ -22,7 +22,7 @@
       let offset = 0, total = 0, queueSerial = 0, detailSerial = 0;
       let targets = [], targetOffset = 0, targetTotal = 0, targetSerial = 0, targetLoading = false;
       let occurrences = [];
-      root.innerHTML = `<div class="panel human-review-head">
+      root.innerHTML = I18n.html`<div class="panel human-review-head">
         <h2>人工补充问题</h2><p>核对评论原文，补充 AI 漏检的问题。人工证据单独留痕，AI 原判断保留。</p>
         <p id="manual-identity"></p>
         <form id="manual-filter" class="human-review-filters">
@@ -68,14 +68,14 @@
           total = data.total;
           if (!data.items.length && offset) { offset = 0; return loadQueue(); }
           $('#manual-identity').textContent = ReviewAPI.identity(data.operator);
-          $('#manual-count').textContent = `符合条件：${total} 条评论`;
+          $('#manual-count').textContent = I18n.html`符合条件：${total} 条评论`;
           $('#manual-items').innerHTML = data.items.length ? data.items.map(c => `
             <button class="human-review-item" data-comment="${esc(c.id)}">
-              <strong>${esc(c.product_id)} · ${c.analysis_status === 'failed' ? '分析失败' : 'AI ' + verdict(c.has_issue)}</strong>
+              <strong>${esc(c.product_id)} · ${c.analysis_status === 'failed' ? I18n.t('分析失败') : 'AI ' + verdict(c.has_issue)}</strong>
               <span>${esc(c.body)}</span><small>${esc(c.platform)} / ${esc(c.shop_id)}</small></button>`).join('')
-            : '<p>没有符合条件的评论。可切换到“全部评论”或修改筛选条件。</p>';
+            : I18n.t('<p>没有符合条件的评论。可切换到“全部评论”或修改筛选条件。</p>');
           controls();
-        } catch (error) { if (call === queueSerial) message('评论列表加载失败，请重试查询。'); }
+        } catch (error) { if (call === queueSerial) message(I18n.t('评论列表加载失败，请重试查询。')); }
       }
       function updateEvidence() {
         const quote = $('#manual-evidence').value, body = current.comment.body;
@@ -88,12 +88,12 @@
           }
         }
         $('#manual-occurrence').innerHTML = occurrences.map((s, i) =>
-          `<option value="${i}">第 ${i + 1} 处：第 ${s.start + 1}–${s.end} 个字符</option>`).join('');
+          I18n.html`<option value="${i}">第 ${i + 1} 处：第 ${s.start + 1}–${s.end} 个字符</option>`).join('');
         if (occurrences.length) $('#manual-occurrence').value =
           previous !== '' && occurrences[Number(previous)] ? previous : '0';
         $('#manual-evidence-feedback').textContent = occurrences.length
-          ? `原文中找到 ${occurrences.length} 处匹配，请核对下方高亮位置。`
-          : '请从原文复制一段非空证据；必须逐字一致。';
+          ? I18n.html`原文中找到 ${occurrences.length} 处匹配，请核对下方高亮位置。`
+          : I18n.t('请从原文复制一段非空证据；必须逐字一致。');
         previewEvidence(); controls();
       }
       function previewEvidence() {
@@ -106,7 +106,7 @@
       async function loadTargets() {
         const call = ++targetSerial, commentId = current.comment.id;
         targets = []; targetLoading = true; pending = null;
-        $('#manual-target').innerHTML = '<option value="">正在加载…</option>'; controls();
+        $('#manual-target').innerHTML = I18n.t('<option value="">正在加载…</option>'); controls();
         const params = new URLSearchParams({q: $('#manual-target-query').value.trim(),
           limit: '20', offset: String(targetOffset)});
         try {
@@ -114,23 +114,23 @@
           if (!root.isConnected || call !== targetSerial || current.comment.id !== commentId) return;
           targets = data.items; targetTotal = data.total;
           if (!targets.length && targetOffset) { targetOffset = 0; return loadTargets(); }
-          $('#manual-target').innerHTML = '<option value="">请选择已有问题组</option>' + targets.map(t =>
-            `<option value="${esc(t.issue.id)}" ${t.selectable ? '' : 'disabled'}>${esc(t.issue.title)}${t.selectable ? '' : '（已有人工决定，不可覆盖）'}</option>`).join('');
-          $('#manual-target-count').textContent = `找到 ${targetTotal} 个同商品有效问题组。没有合适的可选择新建。`;
-        } catch (error) { if (call === targetSerial) message(errors[error.message] || '目标加载失败，请重试搜索。'); }
+          $('#manual-target').innerHTML = I18n.t('<option value="">请选择已有问题组</option>') + targets.map(t =>
+            `<option value="${esc(t.issue.id)}" ${t.selectable ? '' : 'disabled'}>${esc(t.issue.title)}${t.selectable ? '' : I18n.t('（已有人工决定，不可覆盖）')}</option>`).join('');
+          $('#manual-target-count').textContent = I18n.html`找到 ${targetTotal} 个同商品有效问题组。没有合适的可选择新建。`;
+        } catch (error) { if (call === targetSerial) message(errors[error.message] || I18n.t('目标加载失败，请重试搜索。')); }
         finally { if (root.isConnected && call === targetSerial) { targetLoading = false; controls(); } }
       }
       function renderDetail(data) {
         data = {...data, can_add: data.can_add && ReviewAPI.canReview};
         current = data; pending = null; occurrences = []; targets = []; targetOffset = 0; ++targetSerial;
         const c = data.comment;
-        $('#manual-detail').innerHTML = `<h3>评论原文与人工补充</h3>
+        $('#manual-detail').innerHTML = I18n.html`<h3>评论原文与人工补充</h3>
           <p>${esc(c.platform)} / ${esc(c.shop_id)} / ${esc(c.product_id)}</p>
-          <p>AI 判断：${verdict(c.has_issue)}${c.analysis_status === 'failed' ? ' · 分析失败，可直接人工核对原文' : ''}</p>
+          <p>AI 判断：${verdict(c.has_issue)}${c.analysis_status === 'failed' ? I18n.t(' · 分析失败，可直接人工核对原文') : ''}</p>
           <blockquote class="human-review-body" id="manual-body">${esc(c.body)}</blockquote>
           <h4>已有问题关联</h4>${data.links.length ? data.links.map(r => `<p>
-            <button class="btn" data-open-link="${r.link.id}">${esc(r.issue.title)} · ${labels[r.link.status]}${r.link.superseded_at ? '（旧建议）' : ''}</button></p>`).join('') : '<p>暂无关联，可以补充 AI 漏检的问题。</p>'}
-          ${data.can_add ? `<form id="manual-add" class="human-review-manual-form">
+            <button class="btn" data-open-link="${r.link.id}">${esc(r.issue.title)} · ${labels[r.link.status]}${r.link.superseded_at ? I18n.t('（旧建议）') : ''}</button></p>`).join('') : I18n.t('<p>暂无关联，可以补充 AI 漏检的问题。</p>')}
+          ${data.can_add ? I18n.html`<form id="manual-add" class="human-review-manual-form">
             <label for="manual-evidence">原文证据（请复制原文片段）</label>
             <textarea id="manual-evidence" maxlength="2000" rows="3"></textarea>
             <p id="manual-evidence-feedback">请从原文复制一段非空证据；必须逐字一致。</p>
@@ -154,7 +154,7 @@
             <div class="human-review-actions"><button class="btn btn-primary" id="manual-save" disabled>保存人工补充</button>
               <button class="btn" type="button" id="manual-reset">取消补充</button>
               <button class="btn" type="button" id="manual-reload">重新加载评论</button></div>
-          </form>` : `<p>${esc(ReviewAPI.canReview ? (errors[data.blocked_reason] || '当前不可补充。') : '只读成员可查看原文和历史，不能补充问题。')}</p><button class="btn" id="manual-reload">重新加载评论</button>`}`;
+          </form>` : I18n.html`<p>${esc(ReviewAPI.canReview ? (errors[data.blocked_reason] || I18n.t('当前不可补充。')) : I18n.t('只读成员可查看原文和历史，不能补充问题。'))}</p><button class="btn" id="manual-reload">重新加载评论</button>`}`;
         if (data.can_add) loadTargets();
       }
       async function loadDetail(id) {
@@ -163,7 +163,7 @@
         try {
           const data = await ReviewAPI.request('/review-comments/' + id);
           if (root.isConnected && call === detailSerial) { renderDetail(data); hooks.selected?.(data.comment.id); }
-        } catch (error) { if (call === detailSerial) message('评论加载失败，输入已保留，请重试。'); }
+        } catch (error) { if (call === detailSerial) message(I18n.t('评论加载失败，输入已保留，请重试。')); }
         finally {
           if (root.isConnected && call === detailSerial) {
             detailLoading = false; $('#manual-detail').inert = false; controls();
@@ -194,7 +194,7 @@
         if (event.target.id === 'manual-target-next') { targetOffset += 20; loadTargets(); }
         if (event.target.id === 'manual-target-search') { targetOffset = 0; loadTargets(); }
         if (event.target.id === 'manual-reload' && current) loadDetail(current.comment.id);
-        if (event.target.id === 'manual-reset' && current) { renderDetail(current); message('已取消补充，未保存任何改变。'); }
+        if (event.target.id === 'manual-reset' && current) { renderDetail(current); message(I18n.t('已取消补充，未保存任何改变。')); }
       });
       root.addEventListener('submit', async event => {
         event.preventDefault();
@@ -202,16 +202,16 @@
         if (event.target.id === 'manual-filter') { offset = 0; loadQueue(); return; }
         if (event.target.id !== 'manual-add' || detailLoading || !current?.can_add) return;
         const span = occurrences[Number($('#manual-occurrence').value)], note = $('#manual-note').value.trim();
-        if (!span) { message('请填写与原文一致的证据，并选择位置。'); return; }
-        if (!note) { message('请填写补充原因。'); $('#manual-note').focus(); return; }
+        if (!span) { message(I18n.t('请填写与原文一致的证据，并选择位置。')); return; }
+        if (!note) { message(I18n.t('请填写补充原因。')); $('#manual-note').focus(); return; }
         const content = {expected_token: current.token, evidence_text: $('#manual-evidence').value,
           evidence_start: span.start, evidence_end: span.end, note};
         if (isNew()) {
           const title = $('#manual-title').value.trim();
-          if (!title) { message('请填写新问题标题。'); $('#manual-title').focus(); return; }
+          if (!title) { message(I18n.t('请填写新问题标题。')); $('#manual-title').focus(); return; }
           content.new_issue = {title, category_id: $('#manual-category').value};
         } else {
-          if (targetLoading || !target()?.selectable) { message('请选择可用的已有问题组。'); return; }
+          if (targetLoading || !target()?.selectable) { message(I18n.t('请选择可用的已有问题组。')); return; }
           content.target_issue_id = target().issue.id; content.expected_target_token = target().token;
         }
         const key = JSON.stringify(content);
@@ -220,14 +220,14 @@
         try {
           const result = await ReviewAPI.request(`/review-comments/${current.comment.id}/manual-links`, pending.body);
           pending = null;
-          message('人工补充已保存，关联已接受；原文证据、原因和操作历史均已保留。');
+          message(I18n.t('人工补充已保存，关联已接受；原文证据、原因和操作历史均已保留。'));
           await loadDetail(current.comment.id);
           if (root.isConnected) {
             const button = document.createElement('button');
             button.className = 'btn'; button.dataset.openLink = result.link_id;
-            button.textContent = '查看刚保存的关联与历史'; $('#manual-message').append(' ', button);
+            button.textContent = I18n.t('查看刚保存的关联与历史'); $('#manual-message').append(' ', button);
           }
-        } catch (error) { message((errors[error.message] || '保存未确认，请重试。') + ' 输入内容已保留。'); }
+        } catch (error) { message((errors[error.message] || I18n.t('保存未确认，请重试。')) + I18n.t(' 输入内容已保留。')); }
         finally { busy = false; hooks.busy(false); root.inert = false; controls(); }
       });
       loadQueue();

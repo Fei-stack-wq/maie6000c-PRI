@@ -68,6 +68,7 @@ def decide(db: Session, link_id: int, payload: ReviewDecisionRequest, operator: 
         conflict("invalid_evidence")
     before = {
         "status": link.status, "review_version": link.review_version,
+        "auto_confirmed": bool(link.auto_confirmed),
         "decided_by": link.decided_by,
         "decided_at": link.decided_at.isoformat() if link.decided_at else None,
     }
@@ -76,6 +77,7 @@ def decide(db: Session, link_id: int, payload: ReviewDecisionRequest, operator: 
     ).order_by(IssueAction.id.desc()).limit(1)).scalar_one_or_none()
     now = utcnow()
     link.status = next_status
+    link.auto_confirmed = False
     link.decided_by, link.decided_at = operator, now
     link.review_version += 1
     action = IssueAction(

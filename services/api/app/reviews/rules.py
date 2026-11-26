@@ -50,6 +50,8 @@ def needs_recheck(link, comment, run):
 
 
 def recheck_blocked_reason(link, comment, issue, run):
+    if comment.batch_id != issue.batch_id:
+        return "scope_mismatch"
     if (comment.platform, comment.shop_id, comment.product_id) != (
         issue.platform, issue.shop_id, issue.product_id,
     ):

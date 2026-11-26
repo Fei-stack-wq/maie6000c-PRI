@@ -5,19 +5,21 @@
     setSession(value) { session = value; },
     get canReview() { return session?.can_review === true; },
     identity(operator) {
-      return session?.mode === 'demo' ? `真实数据库 · 演示身份：${operator}（非登录认证）` :
-        `当前账号：${session?.username || operator} · ${this.canReview ? '复核员' : '只读成员'}`;
+      return session?.mode === 'demo' ? I18n.html`真实数据库 · 演示身份：${operator}（非登录认证）` :
+        I18n.html`当前账号：${session?.username || operator} · ${this.canReview ? I18n.t('复核员') : I18n.t('只读成员')}`;
     },
     async request(path, body, options = {}) {
       const requestSession = session;
-      const headers = body ? { 'Content-Type': 'application/json', 'X-Review-Request': '1' } : {};
-      if (body && session?.csrf_token) headers['X-CSRF-Token'] = session.csrf_token;
+      const method = options.method || (body ? "POST" : "GET");
+      const writing = method !== "GET";
+      const headers = writing ? { 'Content-Type': 'application/json', 'X-Review-Request': '1' } : {};
+      if (writing && session?.csrf_token) headers['X-CSRF-Token'] = session.csrf_token;
       const response = await fetch(path, {
-        method: body ? 'POST' : 'GET',
+        method,
         credentials: 'same-origin', cache: 'no-store', headers,
         body: body ? JSON.stringify(body) : undefined
       });
-      const data = await response.json();
+      const data = response.status === 204 ? null : await response.json();
       if (!response.ok) {
         const error = new Error(data.detail?.code || 'request_failed');
         error.status = response.status;

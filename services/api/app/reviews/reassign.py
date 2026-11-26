@@ -33,6 +33,7 @@ def issue_targets(db, comment, query, limit, offset, exclude_id=None):
     stmt = select(Issue, CommentIssue).outerjoin(CommentIssue, and_(
         CommentIssue.issue_id == Issue.id, CommentIssue.comment_id == comment.id,
     )).where(
+        Issue.batch_id == comment.batch_id,
         Issue.platform == comment.platform,
         Issue.shop_id == comment.shop_id, Issue.product_id == comment.product_id,
         Issue.status.in_(["proposed", "confirmed"]), Issue.merged_into_id.is_(None),
@@ -79,6 +80,7 @@ def snapshot(link: CommentIssue, comment: Comment, issue: Issue) -> dict:
         "evidence_verified": link.evidence_verified,
         "superseded_at": link.superseded_at.isoformat() if link.superseded_at else None,
         "origin": link.origin, "status": link.status, "review_version": link.review_version,
+        "auto_confirmed": bool(link.auto_confirmed),
         "decided_by": link.decided_by,
         "decided_at": link.decided_at.isoformat() if link.decided_at else None,
     }
@@ -129,6 +131,8 @@ def reassign(db: Session, link_id: int, payload: ReassignRequest, operator: str)
             conflict("target_changed")
     issue_map = {issue.id: issue for issue in locked}
     old_issue, new_issue = issue_map[source.issue_id], issue_map[payload.target_issue_id]
+    if old_issue.batch_id != comment.batch_id or new_issue.batch_id != comment.batch_id:
+        conflict("scope_mismatch")
     target = db.execute(select(CommentIssue).where(
         CommentIssue.comment_id == comment.id, CommentIssue.issue_id == new_issue.id,
     ).with_for_update()).scalar_one_or_none()
@@ -147,12 +151,14 @@ def reassign(db: Session, link_id: int, payload: ReassignRequest, operator: str)
     before_target = snapshot(target, comment, new_issue) if target else None
     now = utcnow()
     try:
+        source.auto_confirmed = False
         source.status, source.decided_by, source.decided_at = "rejected", operator, now
         source.review_version += 1
         if target is None:
             target = CommentIssue(comment_id=comment.id, issue_id=new_issue.id)
             db.add(target)
         # Only an unreviewed suggestion can be reused. Prior target evidence is kept in audit.
+        target.auto_confirmed = False
         target.status, target.origin = "accepted", "human"
         target.evidence_text = source.evidence_text
         target.evidence_start, target.evidence_end = source.evidence_start, source.evidence_end

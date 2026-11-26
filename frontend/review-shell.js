@@ -6,8 +6,8 @@
   function mountWorkspace(root, options) {
     const returnTo = ProductRoutes.safeReturn(options.returnTo);
     const back = ProductRoutes.parse(returnTo);
-    const backLabel = back ? `← 返回${back.route === 'comments' ? '评论' : '问题组'}${back.detailId ? '详情' : '列表'}` : '';
-    root.innerHTML = `${back ? `<p><a class="btn" href="${esc(returnTo)}">${backLabel}</a></p>` : ''}
+    const backLabel = back ? I18n.html`← 返回${back.route === 'comments' ? I18n.t('评论') : I18n.t('问题组')}${back.detailId ? I18n.t('详情') : I18n.t('列表')}` : '';
+    root.innerHTML = I18n.html`${back ? `<p><a class="btn" href="${esc(returnTo)}">${backLabel}</a></p>` : ''}
       <div class="human-review-actions" aria-label="复核方式">
         <button class="btn" id="review-decisions-tab">建议复核与历史</button>
         <button class="btn" id="review-manual-tab">人工补充问题</button>

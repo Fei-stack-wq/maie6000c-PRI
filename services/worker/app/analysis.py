@@ -1,4 +1,5 @@
 """AI boundary: immutable input, bounded HTTP call, schema and evidence validation."""
+
 import hashlib
 from dataclasses import dataclass
 from time import perf_counter
@@ -8,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from services.common.categories import CATEGORY_VERSION, is_valid_category
+from services.common.classification import normalized_category
 from services.common.models import Comment, CommentRevision, HasIssue
 from services.common.schemas import (
     ExtractedIssue,
@@ -29,6 +31,7 @@ class AnalysisInput:
     input_hash: str
     revision_id: int
     comment_version: int
+    batch_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -53,13 +56,20 @@ def load_analysis_input(db: Session, comment_id: str) -> AnalysisInput:
     if comment is None:
         raise CommentNotFound(comment_id)
     revision_id, version = db.execute(
-        select(func.max(CommentRevision.id), func.max(CommentRevision.version))
-        .where(CommentRevision.comment_id == comment_id)
+        select(func.max(CommentRevision.id), func.max(CommentRevision.version)).where(
+            CommentRevision.comment_id == comment_id
+        )
     ).one()
     return AnalysisInput(
-        comment.id, comment.platform, comment.shop_id, comment.product_id, comment.body,
+        comment.id,
+        comment.platform,
+        comment.shop_id,
+        comment.product_id,
+        comment.body,
         hashlib.sha256(comment.body.encode("utf-8")).hexdigest(),
-        revision_id or 0, version or 1,
+        revision_id or 0,
+        version or 1,
+        comment.batch_id,
     )
 
 
@@ -68,7 +78,8 @@ def call_ai_service(snapshot: AnalysisInput, url: str, timeout: float) -> tuple[
     response = httpx.post(
         f"{url.rstrip('/')}/extract-issues",
         json={
-            "comment_id": snapshot.comment_id, "product_id": snapshot.product_id,
+            "comment_id": snapshot.comment_id,
+            "product_id": snapshot.product_id,
             "body": snapshot.body,
         },
         timeout=timeout,
@@ -112,6 +123,13 @@ def validate_ai_result(raw: object, snapshot: AnalysisInput) -> ExtractionResult
         result = ExtractionResult.model_validate(raw)
     except ValueError as exc:
         raise InvalidAIOutput("Schema validation failed") from exc
+    if any(not is_valid_category(issue.category_id) for issue in result.issues):
+        raise InvalidAIOutput("Unknown category")
+    if result.source == "llm":
+        for issue in result.issues:
+            issue.category_id = normalized_category(
+                issue.category_id, issue.description, issue.evidence_text
+            )
     if result.comment_id != snapshot.comment_id:
         raise InvalidAIOutput("Mismatched comment ID")
     if result.schema_version != "1" or result.category_version != CATEGORY_VERSION:

@@ -2,16 +2,16 @@
   'use strict';
   const modes = ['decisions', 'manual', 'issues'];
   const listKeys = {
-    batches: ['platform', 'q', 'page'],
-    comments: ['batch_id', 'product_id', 'analysis_status', 'has_issue', 'q', 'page'],
-    issues: ['product_id', 'status', 'category_id', 'q', 'page']
+    batches: ['platform', 'q', 'page', 'trash'],
+    comments: ['batch_ids', 'product_keys', 'batch_id', 'product_id', 'analysis_status', 'has_issue', 'q', 'page'],
+    issues: ['batch_ids', 'product_keys', 'product_id', 'status', 'category_id', 'q', 'page']
   };
   const defaults = {batches: {platform: ''}, comments: {batch_id: '', analysis_status: '', has_issue: ''}, issues: {status: 'all', category_id: ''}};
   function filters(route, params) {
     if (!listKeys[route]) return {};
     const result = {...defaults[route], product_id: '', q: '', page: '1'};
     for (const key of listKeys[route] || []) {
-      if (params.has(key)) result[key] = params.get(key).trim().slice(0, key === 'q' ? 200 : 128);
+      if (params.has(key)) result[key] = params.get(key).trim().slice(0, key === 'q' ? 200 : key === 'batch_ids' ? 8000 : key === 'product_keys' ? 80000 : 128);
     }
     if (!/^[1-9]\d{0,5}$/.test(result.page)) result.page = '1';
     const enums = route === 'comments' ? {
@@ -19,7 +19,7 @@
       has_issue: ['', 'yes', 'no', 'unknown']
     } : route === 'issues' ? {status: ['all', 'proposed', 'confirmed', 'resolved', 'dismissed', 'merged'],
       category_id: ['', 'quality', 'logistics', 'mismatch', 'usability', 'other']} : {};
-    if (route === 'batches') result.platform = result.platform.slice(0, 32);
+    if (route === 'batches') { result.platform = result.platform.slice(0, 32); if (result.trash !== '1') result.trash = ''; }
     if (route === 'comments') result.batch_id = result.batch_id.slice(0, 36);
     for (const [key, values] of Object.entries(enums)) {
       if (!values.includes(result[key])) result[key] = defaults[route][key];
@@ -39,7 +39,7 @@
   function parse(hash, allowReturn = true) {
     try {
       const raw = String(hash || '');
-      if (!raw.startsWith('#/') || raw.length > 3000) return null;
+      if (!raw.startsWith('#/') || raw.length > 250000) return null;
       const split = raw.indexOf('?'), path = split < 0 ? raw.slice(2) : raw.slice(2, split);
       const parts = path.replace(/\/$/, '').split('/');
       const route = parts[0], id = parts[1] ? decodeURIComponent(parts[1]) : null;

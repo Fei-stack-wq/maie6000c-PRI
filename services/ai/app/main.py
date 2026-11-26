@@ -42,14 +42,33 @@ PROMPT_VERSION = "v1"
 KEYWORDS: dict[str, tuple[str, ...]] = {
     "quality": ("拉链", "开线", "掉色", "破", "坏", "卡住", "拉不上", "做工", "质量", "断裂"),
     "logistics": ("物流", "快递", "发货", "包裹", "配送", "到货", "慢"),
-    "mismatch": ("色差", "不符", "描述", "尺寸", "大小", "图片", "实物"),
+    "mismatch": (
+        "色差",
+        "不符",
+        "描述",
+        "尺寸",
+        "大小",
+        "图片",
+        "实物",
+        "偏大",
+        "偏小",
+        "太大",
+        "太小",
+        "太窄",
+        "太宽",
+        "尺码",
+    ),
+    "other": ("太贵", "价格过高", "不值这个价"),
     "usability": ("使用", "体验", "功能", "容量", "肩带", "舒适", "太重", "装不下"),
 }
 
 SENTENCE_BREAKS = "。！？；.!?;\n"
 ENGLISH_NAMES = {
-    "quality": "Quality", "logistics": "Logistics",
-    "mismatch": "Description mismatch", "usability": "Usability",
+    "quality": "Quality",
+    "logistics": "Logistics",
+    "mismatch": "Description mismatch",
+    "usability": "Usability",
+    "other": "Other",
 }
 
 
@@ -61,7 +80,7 @@ def _evidence_at(body: str, start: int, end: int) -> str:
     while right < len(body) and body[right] not in SENTENCE_BREAKS:
         right += 1
     left = max(left, end - 500)
-    return body[left:min(right, left + 500)].strip()
+    return body[left : min(right, left + 500)].strip()
 
 
 def _find_evidence(body: str, keyword: str) -> str | None:
@@ -77,8 +96,9 @@ def extract_issues(payload: ExtractionRequest) -> ExtractionResult:
     for category_id, keywords in KEYWORDS.items():
         if category_id in used_categories:
             continue
-        evidence = next((found for keyword in keywords
-                         if (found := _find_evidence(body, keyword))), None)
+        evidence = next(
+            (found for keyword in keywords if (found := _find_evidence(body, keyword))), None
+        )
         english = False
         if evidence is None:
             span = find_issue(body, category_id)
@@ -88,12 +108,17 @@ def extract_issues(payload: ExtractionRequest) -> ExtractionResult:
         if evidence is None:
             continue
         description = (
-            f"{ENGLISH_NAMES[category_id]} issue: {evidence[:80]}" if english
+            f"{ENGLISH_NAMES[category_id]} issue: {evidence[:80]}"
+            if english
             else f"{CATEGORIES[category_id].name}相关问题：{evidence[:80]}"
         )
-        issues.append(ExtractedIssue(
-            category_id=category_id, description=description, evidence_text=evidence,
-        ))
+        issues.append(
+            ExtractedIssue(
+                category_id=category_id,
+                description=description,
+                evidence_text=evidence,
+            )
+        )
         used_categories.add(category_id)
 
     if issues:
@@ -136,18 +161,30 @@ def run_extraction(payload: ExtractionRequest) -> ExtractionResult:
                 attempts = 0
                 break
             if attempt < 3:
-                logger.warning("llm_retry", extra={
-                    "comment_id": payload.comment_id, "attempt": attempt,
-                    "reason": reason,
-                })
+                logger.warning(
+                    "llm_retry",
+                    extra={
+                        "comment_id": payload.comment_id,
+                        "attempt": attempt,
+                        "reason": reason,
+                    },
+                )
                 time.sleep(0.5 * attempt)
-    logger.warning("llm_fallback", extra={
-        "comment_id": payload.comment_id, "fallback_reason": reason,
-        "llm_attempts": attempts,
-    })
-    return extract_issues(payload).model_copy(update={
-        "source": "heuristic", "fallback_reason": reason, "llm_attempts": attempts,
-    })
+    logger.warning(
+        "llm_fallback",
+        extra={
+            "comment_id": payload.comment_id,
+            "fallback_reason": reason,
+            "llm_attempts": attempts,
+        },
+    )
+    return extract_issues(payload).model_copy(
+        update={
+            "source": "heuristic",
+            "fallback_reason": reason,
+            "llm_attempts": attempts,
+        }
+    )
 
 
 @app.get("/", response_model=HealthResponse)

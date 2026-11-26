@@ -1,47 +1,77 @@
-# Integrated workbench / 整合工作台
+# Product workbench / 产品工作台
 
 ## English
 
-Start Docker Desktop, then run from the repository root:
+Start Docker Desktop, run `.\scripts\start_product_ui.ps1`, then open
+<http://localhost:8000/ui/>. The top-right selector switches Chinese/English and remembers the choice.
+Switching reloads the current route; unsaved form entries receive a confirmation prompt.
+Review text, evidence, titles and human notes retain their original language.
 
-```powershell
-.\scripts\start_product_ui.ps1
-```
+The upload page offers the CSV template and Chinese (50 reviews) / English (60 reviews)
+test downloads. Files are bundled under `test-data/`; downloading does not import them.
+See [sample sources](test-data/README.txt) for provenance and test identifiers.
 
-Open <http://localhost:8000/ui/>. The script keeps an existing `.env`, builds the services and applies migrations through `20261121_0006`. The first AI build installs a CPU sentence model and downloads its weights, so it takes longer than a rule-only build. Keep Docker Desktop running.
+| Page | Use |
+| --- | --- |
+| `#/batches` | Upload CSV, inspect progress, stop unfinished work, trash or permanently delete a batch |
+| `#/batches?trash=1` | Restore or permanently delete a trashed batch |
+| `#/comments` | Select batches/products, inspect analysis and category tags, open full text |
+| `#/issues` | Batch → product → category; grouped entries above pending entries |
+| `#/reviews` | Evidence decisions, corrections, manual additions, issue follow-up and merge/split |
+| `#/about` | Project and documentation links |
 
-The default entry loads `api-client.js`, the session controls, product routes and the team's modular batch/comment/review/issue pages. It does not load the old `api.js`/`live.js` pair. Both previous versions remain archived, not mixed into the active router.
+Batch and product pickers support multiple selection, search and all. Product choices follow the
+selected batches and include complete catalog pages, not only products in the current results page.
+Products are distinguished by platform/store/product. Filters survive refresh and review return links.
 
-1. Upload the 10-row CSV with platform `amazon_sample`, inspect progress and row errors.
-2. Open Comments; filter and paginate. Comment details include original evidence, model/rule source, model attempts and fallback reason.
-3. Open Human review to accept/reject suggestions, reassign or recheck evidence, or manually add an issue to a missed review.
-4. Open Issue groups to confirm/dismiss, add follow-up notes, resolve/reopen, merge or split. Evidence acceptance and issue resolution are distinct operations.
+The board pages whole products. Load more expands a category lane. Colour labels identify the five
+categories; a multi-issue review can show several labels. Confirm assignment moves a pending entry
+to the grouped section. Review / reassign also works for automatically grouped entries.
 
-The API supplies identity and version tokens. If another user/Worker changes the record, reload current evidence before resubmitting; do not force an outdated decision. Session mode uses reviewer/viewer accounts; demo mode clearly labels its non-login identity and still writes real data.
+The UI uses plain HTML/CSS/JavaScript and same-origin APIs. No frontend build or external CDN is required.
 
-Lists are loaded from the server, including batches. Refresh and deep links preserve their filters. Old completed reviews do not automatically acquire new semantic grouping. The first 10-row sample is included in the 60-row sample, so consistent reimports deduplicate.
+| Module | Responsibility |
+| --- | --- |
+| `api-client.js`, `auth-ui.js` | Session/CSRF requests, login/roles, empty DELETE responses |
+| `product-routes.js` | Refreshable routes and scope filters |
+| `scope-filter.js`, `workbench-ui.js` | Complete catalogs, dependent selection and bilingual helpers |
+| `scope-pages.js`, `scope.css` | Comment cards and the hierarchical issue board |
+| `batch-pages.js`, `batch-actions.js` | Upload/progress, stop, recycle/restore/purge and imported records |
+| Existing review modules | Audited decisions, corrections, manual evidence and issue actions |
+| `i18n.js`, `i18n-en.js` | Existing UI translation; dynamic review content is never scanned for translation |
 
-Frontend checks: `node --test tests/frontend/*.cjs`. The old adapter tests cover the archived read-only client; the routing/upload tests cover the active workbench. Full API and concurrent-write tests run with pytest; see Operations.
+Run `node --test tests/frontend/*.cjs` for the frontend checks.
+`/ui/legacy/` and `/ui/previous/` remain archived; the port-18717 midterm demo remains separate.
 
 ## 中文
 
-先启动 Docker Desktop，在仓库根目录运行：
+启动 Docker Desktop，运行 `.\scripts\start_product_ui.ps1`，打开 <http://localhost:8000/ui/>。
+右上角切换中英文并记住选择。切换会刷新当前页面，未保存表单内容会提示确认。
+评论、证据、问题标题和人工备注保留原语言。
 
-```powershell
-.\scripts\start_product_ui.ps1
-```
+上传页提供 CSV 示例、中文50条和英文60条测试集下载。文件随项目保存在 `test-data/`，
+下载不会自动导入；来源和测试编号说明见[样本说明](test-data/README.txt)。
 
-打开 <http://localhost:8000/ui/>。脚本保留已有 `.env`，构建服务并迁移数据库到 `20261121_0006`。首次构建 AI 服务需要安装 CPU 语义模型并下载权重，会比纯规则版更久。运行时保持 Docker Desktop 开启。
+| 页面 | 用途 |
+| --- | --- |
+| `#/batches` | CSV 上传、进度、停止剩余分析、回收或永久删除批次 |
+| `#/batches?trash=1` | 恢复或永久删除回收站批次 |
+| `#/comments` | 选择批次和商品，查看分析、类别标签及完整原文 |
+| `#/issues` | 批次 → 商品 → 类别；上方已归组，下方待确认 |
+| `#/reviews` | 证据判断、纠错、人工补充、问题跟进及合并／拆分 |
+| `#/about` | 项目与文档入口 |
 
-默认入口加载 `api-client.js`、身份控件、产品路由和组员拆分的批次／评论／复核／问题页面，不再加载旧的 `api.js`／`live.js`。旧版本已归档，不混入当前路由。
+批次和商品选择器支持搜索、多选、全部，商品随批次联动，完整读取选项分页，不只取当前结果页。
+商品以平台、店铺和商品编号共同区分。刷新和从人工复核返回时保留筛选。
 
-1. 使用 `amazon_sample` 平台上传 10 条 CSV，查看进度和错误行。
-2. 打开评论列表进行筛选、分页。详情展示原文证据、模型／规则来源、模型尝试次数和回退原因。
-3. 在人工复核中接受／拒绝建议、改归组、重核证据，或为漏识别评论人工补充问题。
-4. 在问题组中确认／忽略、填写跟进备注、解决／重开、合并或拆分。接受证据与解决问题是不同操作。
+问题看板按完整商品分页，类别内可以加载更多；五类使用颜色标签，多问题评论可显示多个标签。
+确认归组后内容移到上方，自动归组内容也可以通过“核对／调整归组”纠错。
 
-身份与版本凭据由后端提供。其他成员或后台修改记录后，应重新加载最新证据再提交，不强行覆盖旧版本。会话模式使用复核员／只读成员账号；演示模式明确标记非登录身份，操作仍真实写库。
+前端使用原生 HTML、CSS、JavaScript 和同源 API，无构建步骤或外部 CDN。
+`api-client.js`、`auth-ui.js` 管理请求和身份；`product-routes.js` 管理路由；
+`scope-filter.js`、`workbench-ui.js` 管理完整选项及联动；`scope-pages.js`、`scope.css` 提供评论和分层看板；
+`batch-pages.js`、`batch-actions.js` 提供上传、进度及批次操作。原复核模块继续处理审计、人工证据及问题跟进，
+`i18n.js`、`i18n-en.js` 继续提供界面翻译，不扫描或改写业务正文。
 
-包括批次在内的列表均读取服务器。刷新和详情跳转保留筛选。已完成旧评论不会自动获得新语义归组。10 条样本包含在 60 条样本中，平台一致时重复导入会去重。
-
-前端检查：`node --test tests/frontend/*.cjs`。旧适配器测试覆盖归档只读客户端，路由／上传测试覆盖当前工作台。完整 API 和并发写入测试通过 pytest 执行，见运行说明。
+运行 `node --test tests/frontend/*.cjs` 验证前端。
+`/ui/legacy/`、`/ui/previous/` 保留为历史预览，18717 端口的期中 Demo 仍独立运行。

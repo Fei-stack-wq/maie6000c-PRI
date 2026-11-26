@@ -1,5 +1,10 @@
 # R2 Implementation / R2 实现说明
 
+Historical implementation note. Current batch boundaries, cancellation and automatic grouping: [architecture](architecture.md).
+
+历史实现记录。当前批次隔离、取消和自动归组规则见[系统架构](architecture.md)。
+
+
 ## English
 
 ### 1. Files and processing order

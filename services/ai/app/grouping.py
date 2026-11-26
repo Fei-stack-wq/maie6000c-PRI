@@ -29,27 +29,105 @@ _cached_st_embedder: EmbedFn | None = None
 _st_load_failed = False
 
 # Tokens ignored for the keyword gate (not used as "substantive" overlap).
-_STOPWORDS = frozenset({
-    "的", "了", "很", "太", "是", "和", "与", "都", "也", "就", "还", "吗", "啊", "呢",
-    "吧", "嘛", "着", "过", "在", "有", "没", "不", "又", "更", "比较",
-    "a", "an", "the", "is", "are", "was", "were", "be", "to", "of", "and", "or",
-    "in", "on", "for", "with", "this", "that", "it", "not", "no", "very", "so",
-})
+_STOPWORDS = frozenset(
+    {
+        "的",
+        "了",
+        "很",
+        "太",
+        "是",
+        "和",
+        "与",
+        "都",
+        "也",
+        "就",
+        "还",
+        "吗",
+        "啊",
+        "呢",
+        "吧",
+        "嘛",
+        "着",
+        "过",
+        "在",
+        "有",
+        "没",
+        "不",
+        "又",
+        "更",
+        "比较",
+        "a",
+        "an",
+        "the",
+        "is",
+        "are",
+        "was",
+        "were",
+        "be",
+        "to",
+        "of",
+        "and",
+        "or",
+        "in",
+        "on",
+        "for",
+        "with",
+        "this",
+        "that",
+        "it",
+        "not",
+        "no",
+        "very",
+        "so",
+    }
+)
 # Shared product/category hubs that alone should not justify a merge.
-_WEAK_HUBS = frozenset({
-    "拉链", "拉锁", "zipper", "肩带", "背带", "strap", "包裹", "快递", "物流",
-    "颜色", "色差", "尺寸", "大小", "质量", "问题", "做工", "面料", "材质",
-    "包包", "背包", "商品", "描述", "图片", "实物", "包装", "客服", "bag",
-    "quality", "issue", "product", "colour", "color", "size", "delivery",
-})
+_WEAK_HUBS = frozenset(
+    {
+        "拉链",
+        "拉锁",
+        "zipper",
+        "肩带",
+        "背带",
+        "strap",
+        "包裹",
+        "快递",
+        "物流",
+        "颜色",
+        "色差",
+        "尺寸",
+        "大小",
+        "质量",
+        "问题",
+        "做工",
+        "面料",
+        "材质",
+        "包包",
+        "背包",
+        "商品",
+        "描述",
+        "图片",
+        "实物",
+        "包装",
+        "客服",
+        "bag",
+        "quality",
+        "issue",
+        "product",
+        "colour",
+        "color",
+        "size",
+        "delivery",
+    }
+)
+
 
 class EmbedderUnavailable(Exception):
     """No embedding backend is configured or loadable."""
 
 
 class Embedder(Protocol):
-    def __call__(self, texts: Sequence[str]) -> list[list[float]]:
-        ...
+    def __call__(self, texts: Sequence[str]) -> list[list[float]]: ...
 
 
 def set_embedder_override(embedder: EmbedFn | None) -> None:
@@ -162,7 +240,9 @@ def _load_sentence_transformers(model_name: str) -> EmbedFn:
 
     def _encode(texts: Sequence[str]) -> list[list[float]]:
         vectors = model.encode(
-            list(texts), normalize_embeddings=True, show_progress_bar=False,
+            list(texts),
+            normalize_embeddings=True,
+            show_progress_bar=False,
         )
         return [list(map(float, row)) for row in vectors]
 
@@ -223,10 +303,10 @@ def suggest_group_assignment(
     except EmbedderUnavailable as exc:
         raise EmbedderUnavailable(str(exc)) from exc
 
+    from services.common.classification import incompatible
+
     candidate_text = normalize_grouping_text(payload.candidate_text)
-    compare_texts = [
-        normalize_grouping_text(_issue_compare_text(issue)) for issue in issues
-    ]
+    compare_texts = [normalize_grouping_text(_issue_compare_text(issue)) for issue in issues]
     vectors = encode([candidate_text, *compare_texts])
     if len(vectors) != len(issues) + 1:
         raise EmbedderUnavailable("embedder returned unexpected vector count")
@@ -234,8 +314,14 @@ def suggest_group_assignment(
     candidate_vec = vectors[0]
     scored: list[tuple[float, ExistingIssueRef, list[str]]] = []
     for issue, vector, text in zip(issues, vectors[1:], compare_texts, strict=True):
+        if incompatible(payload.candidate_text, _issue_compare_text(issue)):
+            continue
         score = _cosine(candidate_vec, vector)
         scored.append((score, issue, _keyword_overlap(candidate_text, text)))
+    if not scored:
+        return GroupSuggestionResult(
+            action=GroupingAction.CREATE_NEW, similarity=0.0, rationale="different specific failure"
+        )
     scored.sort(key=lambda item: (-item[0], item[1].id))
 
     best_score, best_issue, overlap = scored[0]
@@ -247,16 +333,16 @@ def suggest_group_assignment(
             action=GroupingAction.CREATE_NEW,
             similar_issue_ids=[issue.id for _, issue, _ in scored[:3]],
             similarity=round(best_score, 4),
-            rationale=(
-                f"best score {best_score:.4f} < T_main {t_main}; create new group"
-            )[:300],
+            rationale=(f"best score {best_score:.4f} < T_main {t_main}; create new group")[:300],
         )
 
     if len(scored) >= 2:
         second_score = scored[1][0]
         if best_score - second_score < top2_margin:
             return GroupSuggestionResult(
-                action=GroupingAction.CREATE_NEW,
+                action=GroupingAction.LINK_EXISTING,
+                issue_id=best_issue.id,
+                requires_review=True,
                 similar_issue_ids=[issue.id for _, issue, _ in scored[:3]],
                 similarity=round(best_score, 4),
                 rationale=(
@@ -278,8 +364,7 @@ def suggest_group_assignment(
             similar_issue_ids=similar_ids or [best_issue.id],
             similarity=round(best_score, 4),
             rationale=(
-                f"semantic match score {best_score:.4f} >= T_main {t_main}"
-                f"{overlap_note}{conf_note}"
+                f"semantic match score {best_score:.4f} >= T_main {t_main}{overlap_note}{conf_note}"
             )[:300],
         )
 

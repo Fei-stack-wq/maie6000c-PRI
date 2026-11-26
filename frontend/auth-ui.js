@@ -1,10 +1,10 @@
 (function () {
   'use strict';
   const errors = {
-    invalid_credentials: '账号或密码不正确，或账号已停用。',
-    invalid_login: '请填写有效账号和密码。',
-    login_rate_limited: '尝试次数过多，请在 15 分钟后重试。',
-    csrf_failed: '会话校验失败，请重新登录。'
+    invalid_credentials: I18n.t('账号或密码不正确，或账号已停用。'),
+    invalid_login: I18n.t('请填写有效账号和密码。'),
+    login_rate_limited: I18n.t('尝试次数过多，请在 15 分钟后重试。'),
+    csrf_failed: I18n.t('会话校验失败，请重新登录。')
   };
   let cleanup = () => {};
   window.ReviewAuth = {
@@ -23,7 +23,7 @@
         ++serial;
         identity = null;
         ReviewAPI.setSession(null);
-        host.innerHTML = `<section class="panel review-login-panel">
+        host.innerHTML = I18n.html`<section class="panel review-login-panel">
           <h2>登录复核工作台</h2><p>使用分配给你的账号查看评论、证据与操作历史。</p>
           <form id="review-login" class="human-review-manual-form">
             <label for="login-username">账号</label>
@@ -40,14 +40,14 @@
           ++serial;
           loading = true;
           const form = event.currentTarget, data = new FormData(form);
-          form.inert = true; message('正在登录…');
+          form.inert = true; message(I18n.t('正在登录…'));
           try {
             const next = await ReviewAPI.request('/auth/login', {
               username: data.get('username'), password: data.get('password')
             });
             if (connected()) { showWorkspace(next); notifyTabs(); }
           } catch (error) {
-            if (connected()) message(errors[error.message] || '连接失败，请检查服务后重试。');
+            if (connected()) message(errors[error.message] || I18n.t('连接失败，请检查服务后重试。'));
           } finally {
             form.querySelector('#login-password').value = '';
             form.inert = false; loading = false;
@@ -61,31 +61,31 @@
         host.innerHTML = `<section class="panel review-session-panel">
           <div><strong id="auth-identity"></strong><p id="auth-scope"></p>
             <p id="auth-message" role="status" aria-live="polite"></p></div>
-          ${next.mode === 'session' ? '<button class="btn" id="review-logout">退出登录</button>' : ''}
+          ${next.mode === 'session' ? I18n.t('<button class="btn" id="review-logout">退出登录</button>') : ''}
           </section><div id="authenticated-review"></div>`;
         host.querySelector('#auth-identity').textContent = ReviewAPI.identity(next.username);
         host.querySelector('#auth-scope').textContent = next.can_review
-          ? '可上传评论、核对证据、提交决定并跟进问题。复核操作会保存身份与历史。'
-          : '只读权限：可查看批次、评论、证据和历史，不能上传或修改数据。';
+          ? I18n.t('可上传评论、核对证据、提交决定并跟进问题。复核操作会保存身份与历史。')
+          : I18n.t('只读权限：可查看批次、评论、证据和历史，不能上传或修改数据。');
         message(note);
         mountWorkspace(host.querySelector('#authenticated-review'));
         if (next.expires_at) {
-          timer = setTimeout(() => expire('登录已过期，请重新登录后继续。'),
+          timer = setTimeout(() => expire(I18n.t('登录已过期，请重新登录后继续。')),
             Math.max(0, new Date(next.expires_at).getTime() - Date.now()));
         }
         host.querySelector('#review-logout')?.addEventListener('click', async event => {
           if (host.querySelector('#review-workspace')?.getAttribute('aria-busy') === 'true') {
-            message('正在保存，请等本次操作结束后退出。'); return;
+            message(I18n.t('正在保存，请等本次操作结束后退出。')); return;
           }
           event.currentTarget.disabled = true;
           try {
             await ReviewAPI.request('/auth/logout', {});
             clearTimeout(timer); ++serial;
-            if (connected()) showLogin('已退出登录。');
+            if (connected()) showLogin(I18n.t('已退出登录。'));
             notifyTabs();
           } catch (_) {
             if (connected()) {
-              message('退出未完成，请重试。');
+              message(I18n.t('退出未完成，请重试。'));
               const button = host.querySelector('#review-logout');
               if (button) button.disabled = false;
             }
@@ -105,11 +105,11 @@
         } catch (_) {
           if (!connected() || call !== serial) return;
           if (identity || host.querySelector('#review-login')) return;
-          host.innerHTML = '<section class="panel"><p>无法连接登录服务。</p><button class="btn" id="auth-retry">重试连接</button></section>';
+          host.innerHTML = I18n.t('<section class="panel"><p>无法连接登录服务。</p><button class="btn" id="auth-retry">重试连接</button></section>');
           host.querySelector('#auth-retry').addEventListener('click', () => refresh());
         }
       }
-      function expire(note = '会话或权限已变化，请重新核对后继续。未自动重试提交。') {
+      function expire(note = I18n.t('会话或权限已变化，请重新核对后继续。未自动重试提交。')) {
         if (!connected()) return;
         clearTimeout(timer);
         showLogin(note);
@@ -127,7 +127,7 @@
         window.removeEventListener('focus', focused);
         window.removeEventListener('storage', storage);
       };
-      host.innerHTML = '<section class="panel"><p>正在检查登录状态…</p></section>';
+      host.innerHTML = I18n.t('<section class="panel"><p>正在检查登录状态…</p></section>');
       refresh();
     }
   };
