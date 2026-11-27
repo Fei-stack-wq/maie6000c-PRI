@@ -2,6 +2,11 @@
 
 ## English
 
+This record covers the October Week 07 rule baseline. The 7 November model integration
+adds source tracking and fallback; dedicated model-adapter/fallback and review-write tests are
+still pending. Current configuration and implementation are in [Operations](../../../../docs/operations.md#7-ai-configuration)
+and the [AI Integration Card](../../../../docs/architecture.md#7-ai-integration-card).
+
 ### Scope and date
 
 Recorded on 29 October 2026 for the review-processing backend and midterm demo.
@@ -22,7 +27,7 @@ The tables distinguish the earlier complete checks from later English delivery-r
 
 The demo repeats issue, no issue, unknown, fail-once success and continuous failure in both languages.
 The earlier full-suite run included 36 additional English rule tests covering categories, negation, case, mixed text
-and verbatim sentence evidence. Current analysis records identify `rule-baseline-2`.
+and verbatim sentence evidence. The recorded rule-mode analyses identify `rule-baseline-2`.
 The assertions cover stored pending/completed/failed states, evidence, attempt counts, analysis runs,
 metrics and retention after starting another round. Demo scenarios are separate from the R2 smoke
 suite and do not measure extraction accuracy. Existing dependency deprecation warnings did not fail tests.
@@ -75,6 +80,10 @@ No LLM extraction, semantic-grouping or real-platform quality scores are reporte
 
 ## 中文
 
+本记录对应 10 月的 Week 07 规则基线。11 月 7 日接入模型、来源记录和回退，
+专门的模型适配器／回退及审核写入测试仍待补充。当前配置和实现见[运行说明](../../../../docs/operations.md#7-ai-configuration)
+及 [AI Integration Card](../../../../docs/architecture.md#7-ai-integration-card)。
+
 ### 范围与日期
 
 本记录汇总 2026 年 10 月 29 日评论处理后台和期中 Demo 的验证结果。
@@ -95,7 +104,7 @@ No LLM extraction, semantic-grouping or real-platform quality scores are reporte
 
 Demo 在中英文中分别检查有问题、无问题、无法判断、首次失败后成功和持续失败。
 较早完整测试包含新增的 36 项英文规则测试，覆盖类别、否定、大小写、混合文本和逐字句子证据。
-当前分析记录标识为 `rule-baseline-2`。
+当时的规则模式分析记录标识为 `rule-baseline-2`。
 检查包含数据库中的等待／完成／失败状态、证据、次数、分析记录、指标以及新一轮后记录保留。
 它与 R2 冒烟是不同测试，不衡量提取准确率。已有依赖弃用警告未造成测试失败。
 

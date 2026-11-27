@@ -47,7 +47,8 @@ def test_batch_upload_creates_comments_and_jobs(client):
 
     detail = client.get(f"/comments/{comments[0]['id']}")
     assert detail.status_code == 200
-    assert detail.json()["revisions"] == []
+    assert len(detail.json()["revisions"]) == 1
+    assert detail.json()["revisions"][0]["body"] == detail.json()["body"]
     assert detail.json()["issues"] == []
     assert detail.json()["latest_analysis_run"] is None
 
@@ -88,15 +89,16 @@ def test_batch_upload_is_idempotent_with_key(client):
     assert first.json()["batch_id"] == second.json()["batch_id"]
 
 
-def test_duplicate_upload_does_not_recreate_comments(client):
-    client.post("/review-batches", json={"platform": "demo", "csv_text": CSV_OK})
-    again = client.post("/review-batches", json={"platform": "demo", "csv_text": CSV_OK})
 
-    payload = again.json()
-    assert payload["accepted_rows"] == 0
-    assert payload["duplicate_rows"] == 2
-    assert payload["job_count"] == 0
-    assert len(client.get("/comments").json()) == 2
+def test_repeat_upload_is_independent_but_request_replay_is_not_duplicated(client):
+    payload = {"platform": "demo", "csv_text": CSV_OK, "idempotency_key": "upload-a"}
+    first = client.post("/review-batches", json=payload).json()
+    replay = client.post("/review-batches", json=payload).json()
+    second = client.post("/review-batches", json={**payload, "idempotency_key": "upload-b"}).json()
+    assert replay["batch_id"] == first["batch_id"] != second["batch_id"]
+    assert second["accepted_rows"] == second["job_count"] == 2
+    assert second["duplicate_rows"] == 0
+    assert len(client.get("/comments").json()) == 4
 
 
 def test_batch_rejects_missing_columns(client):

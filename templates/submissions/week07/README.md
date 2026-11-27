@@ -2,6 +2,11 @@
 
 ## English
 
+This is the Week 07 rule-baseline milestone record. The later Week 08 integration
+adds model extraction, marked rule fallback and saved source information. Current status is in
+[Progress](../../../docs/progress.md) and the [AI Integration Card](../../../docs/architecture.md#7-ai-integration-card).
+The results below describe the earlier milestone.
+
 ### 1. Project information
 
 - Project: Product Review Analysis & Issue Discovery.
@@ -92,6 +97,10 @@ remain outside the current scope.
 We used ChatGPT to improve and polish the documentation and to assist with code scaffolding and testing.
 
 ## 中文
+
+本文件记录 Week 07 规则基线里程碑。后续 Week 08 已加入模型提取、带原因的规则回退和来源保存。
+当前状态见[项目进度](../../../docs/progress.md)和 [AI Integration Card](../../../docs/architecture.md#7-ai-integration-card)。
+下方验证结果对应此前里程碑。
 
 ### 1. 项目信息
 

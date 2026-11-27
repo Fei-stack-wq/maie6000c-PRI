@@ -123,6 +123,13 @@ label{display:block;font-weight:600;margin-bottom:8px}textarea,select{font:inher
    for(const run of s.runs) {
      const li=document.createElement('li');
      li.textContent='Attempt '+run.attempt+': '+(run.status==='succeeded'?'Succeeded; result saved':'Failed: '+reason(run.error_code));
+      if (run.fallback_reason) {
+        li.textContent += ' · Rule fallback (' + run.fallback_reason + ')';
+      } else if (run.source === 'llm') {
+        li.textContent += ' · Model';
+      } else if (run.source === 'heuristic') {
+        li.textContent += ' · Rules';
+      }
      $('runs').append(li);
    }
  }

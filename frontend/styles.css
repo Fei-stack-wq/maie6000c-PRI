@@ -3817,3 +3817,91 @@ mark.evidence {
     transition: none !important;
   }
 }
+
+/* Live human review: shares the existing shell, with an explicit real-data boundary. */
+.human-review-head { padding: 24px; }
+.human-review-filters, .human-review-actions, .human-review-pagination {
+  display: flex; gap: 12px; flex-wrap: wrap; align-items: end; margin: 16px 0;
+}
+.human-review-filters label { display: grid; gap: 6px; }
+.human-review-grid { display: grid; grid-template-columns: minmax(240px, 1fr) minmax(0, 2fr); gap: 20px; }
+.human-review-grid > .panel { padding: 24px; min-width: 0; }
+.human-review-grid [hidden] { display: none !important; }
+.human-review-item { display: grid; gap: 8px; text-align: left; width: 100%; padding: 16px;
+  background: transparent; border: 1px solid #d8dee8; border-radius: 10px; margin: 10px 0;
+  cursor: pointer; color: inherit; }
+.human-review-item span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.human-review-item:hover, .human-review-item:focus-visible { border-color: #365ad6; }
+.human-review-body { white-space: pre-wrap; overflow-wrap: anywhere; padding: 16px;
+  background: #f5f7fb; border-left: 3px solid #365ad6; margin: 12px 0; }
+.human-review-grid textarea { width: 100%; margin-top: 8px; padding: 10px; box-sizing: border-box; }
+.human-review-history { padding: 12px 0; border-top: 1px solid #d8dee8; overflow-wrap: anywhere; }
+.human-review-notice, #review-message { color: #76501e; margin: 12px 0; }
+.human-review-grid button:disabled { opacity: .5; cursor: not-allowed; }
+.human-review-actions [aria-pressed="true"] { background: #365ad6; color: white; }
+.human-review-manual-form label { display: block; margin-top: 14px; }
+.human-review-manual-form input, .human-review-manual-form select { width: 100%; padding: 10px; margin: 8px 0; box-sizing: border-box; }
+#manual-message { margin: 12px 0; color: #76501e; }
+#workflow-message { margin: 12px 0; color: #76501e; }
+#structure-message { color: #76501e; }
+#recheck-message { color: #76501e; }
+.human-review-regroup input.structure-checkbox { width: auto; margin-right: 8px; }
+.human-review-regroup { border: 1px solid #d8dee8; border-radius: 10px; padding: 16px; margin: 16px 0; }
+.human-review-regroup label { display: block; margin-top: 12px; }
+.human-review-regroup input, .human-review-regroup select { width: 100%; padding: 10px; margin: 8px 0; box-sizing: border-box; }
+@media (max-width: 800px) { .human-review-grid { grid-template-columns: 1fr; } }
+/* Auth uses the same panels and controls as the review workspace. */
+.review-login-panel { max-width: 540px; margin-inline: auto; }
+.review-session-panel { display: flex; align-items: start; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+.review-session-panel p { margin-bottom: 0; }
+.review-session-panel .btn { flex-shrink: 0; }
+@media (max-width: 560px) { .review-session-panel { flex-direction: column; } }
+.live-product-head, .live-comment-detail { margin-bottom: 18px; }
+.live-product-summary, .live-product-tags { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.live-product-summary { justify-content: space-between; margin: 16px 0; }
+.live-product-tags span { background: var(--primary-soft); color: var(--primary); border-radius: 6px; padding: 4px 8px; font-size: 13px; }
+.live-product-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.live-product-card { min-width: 0; display: flex; align-items: flex-start; flex-direction: column; }
+.live-product-card > .btn { margin-top: auto; }
+.live-product-title { color: var(--primary); text-decoration: underline; text-underline-offset: 3px; }
+.live-product-meta, .live-product-scope { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+.live-comment-links .human-review-history { margin-top: 18px; }
+.live-product-empty { grid-column: 1 / -1; }
+.workflow-detail-only .human-review-grid { display: block; }
+.human-review-actions { flex-wrap: wrap; }
+@media (max-width: 800px) { .live-product-cards { grid-template-columns: 1fr; } }
+/* Live batch import and progress. */
+.batch-upload-panel { margin-bottom: 24px; }
+.batch-upload-panel p, .batch-errors p { overflow-wrap: anywhere; }
+.batch-upload-panel .human-review-manual-form { margin-top: 20px; }
+.batch-upload-panel input[type="file"] { max-width: 100%; min-width: 0; padding: 10px; }
+.batch-metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.batch-metrics p { padding: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 12px; }
+.batch-metrics strong { display: block; font-size: 24px; margin-top: 6px; }
+.batch-errors { margin-top: 20px; }
+.batch-errors ol { padding-left: 24px; max-height: 480px; overflow: auto; }
+.batch-errors li { margin-bottom: 16px; overflow-wrap: anywhere; }
+@media (max-width: 700px) { .batch-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Language control stays available on narrow screens. */
+.language-switch select {
+  min-height: 34px;
+  padding: 5px 26px 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background-color: #fff;
+  color: var(--primary);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.language-switch select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+html[lang="en"] .brand-copy > span { font-size: 10px; }
+html[lang="en"] .human-review-tabs { flex-wrap: wrap; }
+
+.language-switch { position: relative; }
+#language-feedback:not(:empty) { display: block; position: absolute; right: 0; top: 100%; z-index: 10; width: 240px; padding: 8px; background: white; border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }
+.language-confirm { width: min(440px, calc(100vw - 32px)); padding: 24px; border: 1px solid var(--border); border-radius: 12px; color: var(--text); box-shadow: 0 16px 48px #0003; }
+.language-confirm::backdrop { background: #102a4359; }
+.language-confirm p { margin: 0 0 20px; line-height: 1.6; }
+.language-confirm form { display: flex; flex-wrap: wrap; gap: 10px; justify-content: flex-end; }

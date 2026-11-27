@@ -1,23 +1,20 @@
-"""Internal AI service: rule-baseline issue extraction (R3 starter).
-
-The contract is frozen in ``services/common/schemas.py`` (``ExtractionResult``):
-the service only proposes issues + evidence; the Worker validates evidence
-against the comment body and writes all database state.  R3 replaces the rule
-baseline with an LLM behind the same interface.
-"""
+"""Internal model/rule extraction and local semantic grouping; Worker owns persistence."""
 
 from __future__ import annotations
 
 import logging
+import time
 import re
 from time import perf_counter
 
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, HTTPException, Response
 from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 
 from services.ai.app.english import find_issue, no_issue_verdict
+from services.ai.app.grouping import EmbedderUnavailable, suggest_group_assignment
+from services.ai.app.llm import LlmError, call_llm_extraction
 from services.common.categories import CATEGORY_VERSION, CATEGORIES
-from services.common.config import configure_logging
+from services.common.config import configure_logging, get_settings
 from services.common.schemas import (
     ExtractedIssue,
     ExtractionRequest,
@@ -25,13 +22,13 @@ from services.common.schemas import (
     GroupSuggestionRequest,
     GroupSuggestionResult,
     HealthResponse,
-    GroupingAction,
 )
+
 
 configure_logging()
 logger = logging.getLogger("services.ai.main")
 
-app = FastAPI(title="Review Management AI Service (rule baseline)", version="0.2.0")
+app = FastAPI(title="Review Management AI Service", version="0.2.0")
 
 EXTRACTION_REQUESTS = Counter(
     "ai_extraction_requests_total", "Total extraction requests", ["has_issue"]
@@ -45,14 +42,33 @@ PROMPT_VERSION = "v1"
 KEYWORDS: dict[str, tuple[str, ...]] = {
     "quality": ("拉链", "开线", "掉色", "破", "坏", "卡住", "拉不上", "做工", "质量", "断裂"),
     "logistics": ("物流", "快递", "发货", "包裹", "配送", "到货", "慢"),
-    "mismatch": ("色差", "不符", "描述", "尺寸", "大小", "图片", "实物"),
+    "mismatch": (
+        "色差",
+        "不符",
+        "描述",
+        "尺寸",
+        "大小",
+        "图片",
+        "实物",
+        "偏大",
+        "偏小",
+        "太大",
+        "太小",
+        "太窄",
+        "太宽",
+        "尺码",
+    ),
+    "other": ("太贵", "价格过高", "不值这个价"),
     "usability": ("使用", "体验", "功能", "容量", "肩带", "舒适", "太重", "装不下"),
 }
 
 SENTENCE_BREAKS = "。！？；.!?;\n"
 ENGLISH_NAMES = {
-    "quality": "Quality", "logistics": "Logistics",
-    "mismatch": "Description mismatch", "usability": "Usability",
+    "quality": "Quality",
+    "logistics": "Logistics",
+    "mismatch": "Description mismatch",
+    "usability": "Usability",
+    "other": "Other",
 }
 
 
@@ -64,7 +80,7 @@ def _evidence_at(body: str, start: int, end: int) -> str:
     while right < len(body) and body[right] not in SENTENCE_BREAKS:
         right += 1
     left = max(left, end - 500)
-    return body[left:min(right, left + 500)].strip()
+    return body[left : min(right, left + 500)].strip()
 
 
 def _find_evidence(body: str, keyword: str) -> str | None:
@@ -80,8 +96,9 @@ def extract_issues(payload: ExtractionRequest) -> ExtractionResult:
     for category_id, keywords in KEYWORDS.items():
         if category_id in used_categories:
             continue
-        evidence = next((found for keyword in keywords
-                         if (found := _find_evidence(body, keyword))), None)
+        evidence = next(
+            (found for keyword in keywords if (found := _find_evidence(body, keyword))), None
+        )
         english = False
         if evidence is None:
             span = find_issue(body, category_id)
@@ -91,12 +108,17 @@ def extract_issues(payload: ExtractionRequest) -> ExtractionResult:
         if evidence is None:
             continue
         description = (
-            f"{ENGLISH_NAMES[category_id]} issue: {evidence[:80]}" if english
+            f"{ENGLISH_NAMES[category_id]} issue: {evidence[:80]}"
+            if english
             else f"{CATEGORIES[category_id].name}相关问题：{evidence[:80]}"
         )
-        issues.append(ExtractedIssue(
-            category_id=category_id, description=description, evidence_text=evidence,
-        ))
+        issues.append(
+            ExtractedIssue(
+                category_id=category_id,
+                description=description,
+                evidence_text=evidence,
+            )
+        )
         used_categories.add(category_id)
 
     if issues:
@@ -115,6 +137,53 @@ def extract_issues(payload: ExtractionRequest) -> ExtractionResult:
         model_version=MODEL_VERSION,
         prompt_version=PROMPT_VERSION,
         category_version=CATEGORY_VERSION,
+    )
+
+
+def run_extraction(payload: ExtractionRequest) -> ExtractionResult:
+    settings = get_settings()
+
+    if settings.llm_provider == "heuristic":
+        result = extract_issues(payload)
+        return result.model_copy(update={"source": "heuristic"})
+
+    attempts = 0
+    reason = None
+    for attempt in range(1, 4):
+        try:
+            attempts = attempt
+            result = call_llm_extraction(payload, settings)
+            return result.model_copy(update={"llm_attempts": attempts})
+        except LlmError as exc:
+            reason = str(exc)
+            # Missing configuration cannot improve by making repeated requests.
+            if reason in {"no_api_key", "missing_model_config"}:
+                attempts = 0
+                break
+            if attempt < 3:
+                logger.warning(
+                    "llm_retry",
+                    extra={
+                        "comment_id": payload.comment_id,
+                        "attempt": attempt,
+                        "reason": reason,
+                    },
+                )
+                time.sleep(0.5 * attempt)
+    logger.warning(
+        "llm_fallback",
+        extra={
+            "comment_id": payload.comment_id,
+            "fallback_reason": reason,
+            "llm_attempts": attempts,
+        },
+    )
+    return extract_issues(payload).model_copy(
+        update={
+            "source": "heuristic",
+            "fallback_reason": reason,
+            "llm_attempts": attempts,
+        }
     )
 
 
@@ -141,7 +210,7 @@ def metrics() -> Response:
 @app.post("/extract-issues", response_model=ExtractionResult)
 def extract(payload: ExtractionRequest) -> ExtractionResult:
     start = perf_counter()
-    result = extract_issues(payload)
+    result = run_extraction(payload)
     EXTRACTION_REQUESTS.labels(result.has_issue.value).inc()
     EXTRACTION_LATENCY.observe(perf_counter() - start)
     logger.info(
@@ -157,16 +226,12 @@ def extract(payload: ExtractionRequest) -> ExtractionResult:
 
 @app.post("/suggest-groups", response_model=GroupSuggestionResult)
 def suggest_groups(payload: GroupSuggestionRequest) -> GroupSuggestionResult:
-    """Baseline grouping hint: link the first existing issue, else create new."""
-    if payload.existing_issue_ids:
-        return GroupSuggestionResult(
-            action=GroupingAction.LINK_EXISTING,
-            issue_id=payload.existing_issue_ids[0],
-            similar_issue_ids=payload.existing_issue_ids[:3],
-            similarity=0.5,
-            rationale="rule baseline: reuse the first issue of the same category",
-        )
-    return GroupSuggestionResult(
-        action=GroupingAction.CREATE_NEW,
-        rationale="rule baseline: no existing issue in this category",
-    )
+    """Semantic grouping hint within one product + category; Worker applies it."""
+    settings = get_settings()
+    if not settings.grouping_enabled:
+        raise HTTPException(status_code=503, detail="semantic_grouping_disabled")
+    try:
+        return suggest_group_assignment(payload, settings=settings)
+    except EmbedderUnavailable as exc:
+        logger.warning("grouping_embedder_unavailable", extra={"detail": str(exc)[:200]})
+        raise HTTPException(status_code=503, detail="embedding_unavailable") from exc

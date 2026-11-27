@@ -2,252 +2,224 @@
 
 ## English
 
-### 1. Purpose and scope
+### Scope and workflow
 
-The target product helps staff review recurring issues in product comments. We keep source text
-and evidence separate from suggestions. Only staff should confirm an issue or record a resolution.
-The current milestone covers ingestion, background analysis, persistence and a small demo page.
-Semantic grouping and the complete human-review workflow remain planned work.
-
-### 2. Components and current data flow
+ReviewLens imports product reviews, extracts concrete issues, groups them within an upload,
+and lets staff confirm or correct assignments and follow up issues. The full workbench is
+served at `/ui/`, with a Chinese/English switch. Review text and evidence keep their original language.
 
 ```mermaid
 flowchart LR
-    Page[Midterm page] --> Presenter[Demo controller]
-    Presenter --> API[Project API]
-    API --> DB[(PostgreSQL)]
-    Worker[Project Worker] <--> DB
-    Worker --> Proxy[Demo delay / fault proxy]
-    Proxy --> AI[Rule-based AI service]
-    DB --> Presenter
-    Presenter --> Page
-    Original[Original frontend: mock data]
+    UI[Batch upload] --> API[Validate input]
+    API --> DB[(Batch snapshots and jobs)]
+    DB --> Worker[Worker claims a job]
+    Worker --> AI[Model extraction: up to 3 attempts]
+    AI --> Fallback[Rules if model fails]
+    AI --> Check[Validate categories and evidence]
+    Fallback --> Check
+    Check --> Group[Same batch, platform, store, product and category]
+    Group --> Saved[(Saved results)]
+    Saved --> Board[Batch / product / category board]
+    Board --> Clear[Grouped entries]
+    Board --> Pending[Needs human confirmation]
+    Clear --> Review[Human corrections and history]
+    Pending --> Review
 ```
 
-The demo controller starts the existing API, AI and Worker as child processes. It converts the
-submitted review into CSV input for the existing ingestion API and reads the saved state for display.
-The proxy adds a three-second delay and optional HTTP 503 responses. It does not replace analysis
-or result-saving logic. The standalone Compose runs the controller and its own PostgreSQL service.
+`compose.yaml` runs PostgreSQL, API, Worker and AI separately. The API also serves the frontend.
+The independent midterm demo at `/en` and `/zh` on port 18717 keeps its own controller and database;
+it does not supply the full product's records.
 
-In the full project, `compose.yaml` runs API, Worker, AI and PostgreSQL separately, with optional
-Prometheus. The original frontend is served by the API at `/ui/` but still uses mock data.
+### Data and batch boundaries
 
-| Component | Responsibility | Code |
-| --- | --- | --- |
-| Ingestion/API | Validate CSV text or JSON reviews, save imports and jobs, expose queries | `services/api/app/` |
-| Worker | Claim jobs, call analysis, validate results, persist or retry | `services/worker/app/` |
-| Analysis | Extract issues with Chinese/English rules and source evidence | `services/ai/app/` |
-| Shared data | Models and request/response definitions | `services/common/` |
-| Midterm interface | Demo controls, state display and fault scenarios | `demo/midterm/` |
-| Product frontend | Five-page layout and mock review interactions | `frontend/` |
-
-### 3. One review through the system
-
-1. `POST /review-batches` parses and validates input, then commits valid comments, jobs and row errors.
-   It returns HTTP 202 after ingestion; background analysis runs separately.
-2. A new comment is `queued`; its job is `pending`. Each comment has at most one active job.
-3. Worker claims a due job under a database lock, changes the comment to `analyzing`, records an
-   expiry time, and increments `attempts`. It releases the transaction before the HTTP request.
-4. AI returns `yes`, `no` or `unknown`, categories and evidence. Worker validates the output and
-   locates evidence in the submitted text. Unlocated evidence is discarded; the verdict becomes `unknown`.
-5. Before writing, Worker checks its original claim and the current review text. A superseded claim
-   cannot write results. Changed input is queued again with a fresh attempt budget.
-6. Analysis records, issue links, comment outcome and job completion are committed together.
-   The demo reads these stored results. `no` and `unknown` are successful analyses, not job failures.
-
-English matching ignores letter case and checks common negations. Evidence is a verbatim, bounded
-sentence window from the submitted text. English praise/no-problem cues can produce `no`;
-other unmatched English usually returns `unknown`. Existing Chinese keyword decisions are retained. The rule
-version is `rule-baseline-2`; these changes do not add general semantic understanding.
-
-Current grouping reuses the earliest active candidate/confirmed group within the same platform,
-shop, product and category. Group creation is protected against concurrent duplicates.
-It does not compare descriptions semantically or call `/suggest-groups`.
-
-Coverage is limited to selected phrases in four categories. After-sales and warranty complaints
-have no dedicated rules. Chinese and English coverage is not equivalent for every expression.
-Unmatched Chinese text normally falls back to `no`; unmatched English normally becomes `unknown`,
-but positive cues can also produce `no` when an unsupported complaint is present. Consequently,
-`no` is not a reliable negative finding. Evidence validation checks only that a quotation occurs
-in the source, not whether the category or interpretation is correct. Accuracy on a labelled,
-representative dataset has not been established.
-
-### 4. Stored data
+`comments` stores upload occurrences. Its source identity is recognizable by platform, store,
+product and source review ID, but uniqueness also includes `batch_id`. Uploading the same source
+again creates an independent occurrence and analysis job. A changed review in batch B never
+replaces batch A's text, decisions or results. Within one batch, repeated source IDs share one
+occurrence; changed text retains revision history. Replaying the same idempotency key and payload
+returns the existing batch rather than importing again.
 
 ```mermaid
 erDiagram
-    INGESTION_BATCHES ||--o{ BATCH_ROWS : errors
-    INGESTION_BATCHES |o--o{ COMMENTS : receives
+    INGESTION_BATCHES ||--o{ COMMENTS : snapshots
+    INGESTION_BATCHES ||--o{ ISSUES : owns
+    INGESTION_BATCHES ||--o{ BATCH_ROWS : validation_errors
     COMMENTS ||--o{ COMMENT_REVISIONS : versions
-    COMMENTS ||--o{ JOBS : schedules
+    COMMENTS ||--o{ JOBS : tasks
     JOBS |o--o{ ANALYSIS_RUNS : attempts
-    COMMENTS ||--o{ ANALYSIS_RUNS : analysed
     COMMENTS ||--o{ COMMENT_ISSUES : evidence
-    ISSUES ||--o{ COMMENT_ISSUES : groups
-    ISSUES ||--o{ ISSUE_ACTIONS : planned_review_log
+    ISSUES ||--o{ COMMENT_ISSUES : members
+    ISSUES ||--o{ ISSUE_ACTIONS : history
+    REVIEW_USERS ||--o{ REVIEW_SESSIONS : sessions
 ```
 
-There are nine domain tables. `issue_actions` supports the planned review workflow; the table and
-request models do not mean that review-action APIs are implemented. Full fields and constraints
-are in `services/common/models.py`; migrations end at `20261027_0003`.
+Grouping, manual reassignment, manual additions and merge/split stay within the same batch,
+platform, store and product. They may cross categories when a person corrects a classification.
+Source data, model output, evidence and human decisions remain separate records.
 
-Review identity is `(platform, shop_id, product_id, source_review_id)`. Missing source IDs are
-assigned a stable `synth:` ID using SHA-256 inputs. Body changes create revision records.
-Current unreviewed AI suggestions can be superseded; accepted/rejected or human-created links
-are preserved. Superseded suggestions are excluded from current suggestion counts.
-Import counters are stored on batches; analysis progress and displayed completion status are
-derived when queried. These are different measures and should not be added together.
+Migrations end at `20261126_0010`. Migration separates recoverable historical memberships and
+flags uploads whose old cross-batch deduplication lost occurrence information. It does not invent
+missing historical text. Startup repairs only unreviewed legacy groups from saved output, once per
+batch, without model calls. Groups with human decisions/history are preserved.
 
-### 5. Failure handling
+### Jobs, stop and deletion
 
 ```mermaid
 stateDiagram-v2
     [*] --> pending
     pending --> claimed: claim; attempts + 1
-    claimed --> completed: valid result saved
-    claimed --> pending: retry or recoverable expiry
-    claimed --> failed: non-retryable error or limit reached
-    claimed --> pending: input changed; reset budget
+    claimed --> completed: guarded result commit
+    claimed --> pending: retry or expired lease
+    claimed --> failed: terminal failure
+    pending --> cancelled: stop batch
+    claimed --> cancelled: stop batch
 ```
 
-`attempts` counts actual claims, including the first attempt. Recovery does not increment it.
-Default jobs allow three attempts; transport failures wait 60 then 300 seconds before retries.
-Invalid output gets at most one retry. Other HTTP 4xx errors and unexpected programming errors
-do not automatically retry. Every poll checks for expired jobs; an exhausted job becomes failed.
-The recovery script uses the same rules. There is no manual retry/recover API or batch replay tool yet.
-If database access also prevents recording a failure, the claim is left for expiry recovery;
-an analysis record cannot be guaranteed in that situation.
+Claim and result saving lock the batch before its job/comment. Stop takes the same batch lock:
+results committed before the cutoff remain; unfinished records become `cancelled`. Late replies
+cannot save results, schedule retries, or restore cancelled jobs. An already-sent provider request
+may finish remotely. Result pages for a stopped batch show only successfully analyzed reviews;
+the imported-record view retains cancelled rows. `no` and `unknown` are successful analysis outcomes.
 
-Demo-only overrides shorten waits to 3 and 6 seconds and the lease to 60 seconds.
-They do not change the full-project defaults.
+Trash stops unfinished work and hides the batch from normal lists, catalogs, results and statistics.
+Restore keeps record IDs/history and never resumes cancelled work. Permanent deletion removes only
+that batch's records. Cross-scope legacy references block deletion rather than cascading into another
+batch. Downgrades that would discard independent batch/lifecycle history require a backup restore.
 
-### 6. Interfaces and next work
+### Categories, grouping and review
 
-Current API routes cover batch upload/progress/errors, comments, issues, job status, summary stats,
-health and metrics. Batch upload accepts JSON fields `csv_text` or `comments`; repeated batch requests
-can use the JSON `idempotency_key` field. Direct multipart upload is not implemented.
-AI exposes `/extract-issues`; `/suggest-groups` remains a baseline placeholder.
+| Category | Definition |
+| --- | --- |
+| Quality | Physical damage, broken parts, jammed zippers, torn seams and fading |
+| Delivery | Missing or delayed delivery and address problems |
+| Not as described | Size/fit complaints, wrong colour/style, differences from the listing |
+| User experience | Comfort and ease of use, excluding size/fit |
+| Other | Price/value and concrete issues outside the preceding categories |
 
-Planned work: real review samples, LLM extraction, semantic grouping and evaluation; live data in the
-product frontend; persistent human decisions, group merge/split/follow-up actions; manual job replay.
-The original [target workflow image](assets/fig1_end_to_end_flow.png) remains a design reference,
-not a diagram of completed features. R2 details are in [r2-implementation.md](r2-implementation.md).
+Too big, too small and too narrow all belong to `mismatch`; price belongs to `other`.
+Different specific problems can share a category without becoming one recurring issue.
+Known incompatible failures, such as price versus size or large versus small, are not merged.
+MiniLM compares candidates only within the batch/product/category scope. Ambiguous close matches
+can link to the best candidate with `requires_review=true`. A grouping outage reuses an exact title
+only, or creates a pending group; it no longer merges into the earliest category group.
+
+The board is **batch → product → category → grouped entries → pending entries**. Automatic and
+human assignments have separate labels. A pending assignment can be confirmed; either kind can
+be reassigned. Accepting an association is separate from confirming or resolving an issue in the
+follow-up workflow. Worker reruns preserve human decisions and explicit human grouping.
+
+Catalogs page through the complete active batch/product options. Products are identified by
+platform/store/product, and product choices follow selected batches. The board pages whole products;
+each category lane loads additional entries separately. Cancelled/trashed records do not inflate results.
+
+### AI Integration Card
+
+| Item | Implementation |
+| --- | --- |
+| Workflow step | Worker calls `/extract-issues` for a saved batch occurrence, validates output, then requests `/suggest-groups` for local semantic matching. |
+| Input minimization | Provider messages contain review text (up to 2,000 characters), category definitions and instructions. Internal batch/comment/store IDs are not added to provider messages. |
+| Output contract | `has_issue`: yes/no/unknown. Each issue has a controlled `category_id`, description and verbatim evidence (1–500 characters), and optional confidence from 0 to 1. At most one extracted issue per category per review. |
+| Automatic adoption | Requires `source=llm`, confidence ≥0.9, verified evidence, consistent recognized problem/category cues and no ambiguity/fallback flag. Linking an existing group additionally requires similarity ≥0.8. Model confidence alone is insufficient. Otherwise save a pending suggestion. |
+| Review states | AI auto-confirmed links use accepted plus `auto_confirmed=true`, without a fabricated human identity. Human decisions clear that flag and retain operator/history. Issue follow-up status remains independent. |
+| Fallback | Configured provider failures receive at most two retries (three attempts total); missing configuration falls back immediately. Rule results remain pending. Model/job attempts are separate counters. |
+| Provenance | Analysis records retain model/prompt/category versions, input hash, output, source, attempts, fallback reason, latency and grouping hints. Links retain original evidence and review versions. |
+| Provider and local alternative | OpenAI-compatible provider configured in ignored local `.env`; the existing course gateway/model remain configurable. Rules provide a key-free alternative; MiniLM grouping runs locally. The updated standard prompt is `review-extraction-v2`. |
+| Rate limits | Worker processes one job at a time per process. HTTP 429 participates in bounded model retry/fallback. No global provider request-rate limiter is implemented. |
+| Privacy | The Key stays in the provider authentication header. Review text can itself contain personal information; automatic redaction is not implemented. |
+| Validation | Tests cover source/evidence checks, five-category rules, automatic/pending assignments, human override, batch isolation, stop races, trash/restore/purge, pagination and bilingual UI behavior. |
+| Quality limits | Confidence/similarity thresholds are operational rules, not calibrated accuracy guarantees. Unknown phrasing, sarcasm and unsupported warranty/after-sales expressions can still need human review. |
+
+### Code map
+
+| Area | Files |
+| --- | --- |
+| Import and lifecycle | `services/api/app/ingestion.py`, `batches.py` |
+| Catalog and board | `services/api/app/catalog.py` |
+| Worker | `services/worker/app/main.py`, `jobs.py`, `analysis.py`, `policy.py` |
+| Extraction/grouping | `services/ai/app/llm.py`, `main.py`, `english.py`, `grouping.py` |
+| Category policy | `services/common/classification.py`, `categories.py` |
+| Human decisions | `services/api/app/reviews/` |
+| Frontend | `frontend/scope-filter.js`, `scope-pages.js`, `batch-actions.js`, existing review modules |
 
 ## 中文
 
-### 1. 用途与范围
+### 范围与流程
 
-完整产品用于帮助工作人员检查商品评论中的重复问题。原文及证据与分析建议分开保存，
-问题确认和处理完成应由人工决定。当前里程碑覆盖导入、后台分析、结果保存和小型演示页面。
-语义归组和完整人工复核流程仍是后续工作。
+ReviewLens 导入商品评论、提取具体问题，在各批次内归组，再由工作人员确认或调整归组并跟进问题。
+完整工作台入口为 `/ui/`，支持中英文切换。评论原文和证据保留原语言。
 
-### 2. 组件与当前数据流
+流程为：上传与校验 → 保存批次评论及任务 → Worker 领取 → 大模型提取（失败后规则备用）→
+检查类别与原文证据 → 同批次商品内归组 → 保存结果 → 按批次／商品／类别展示 → 人工确认与调整。
 
-```mermaid
-flowchart LR
-    Page[期中页面] --> Presenter[演示控制]
-    Presenter --> API[项目 API]
-    API --> DB[(PostgreSQL)]
-    Worker[项目 Worker] <--> DB
-    Worker --> Proxy[演示延迟与故障代理]
-    Proxy --> AI[规则分析服务]
-    DB --> Presenter
-    Presenter --> Page
-    Original[原前端：模拟数据]
-```
+`compose.yaml` 分别运行 PostgreSQL、API、Worker 和 AI，API 同时提供前端。
+18717 端口的 `/en`、`/zh` 期中 Demo 继续使用独立控制器和数据库，不提供完整产品的数据。
 
-演示控制程序以子进程启动现有 API、AI 和 Worker，将页面评论整理成 CSV 输入交给现有导入接口，
-并读取已保存状态展示。代理增加三秒等待和可选的 HTTP 503，不替代分析与结果保存逻辑。
-独立 Compose 运行演示控制程序及其 PostgreSQL 服务。
+### 数据与批次边界
 
-原项目的 `compose.yaml` 分别运行 API、Worker、AI 和 PostgreSQL，可选启用 Prometheus。
-原前端通过 API 的 `/ui/` 提供，但业务数据仍来自模拟数据。
+`comments` 保存评论在一次上传中的记录。平台、店铺、商品和来源评论编号可以识别来源，但唯一性还包括
+`batch_id`。再次上传同一来源，会建立属于新批次的评论记录和分析任务；B 批次不会覆盖 A 的正文、决定或结果。
+同批次重复来源共用一条记录，正文变化保留版本。相同幂等编号和内容的请求重试返回已有批次，不重复导入。
 
-| 组件 | 职责 | 代码 |
-| --- | --- | --- |
-| 导入／API | 校验 CSV 文本或 JSON 评论，保存导入和任务，提供查询 | `services/api/app/` |
-| Worker | 领取任务、调用分析、检查结果、保存或重试 | `services/worker/app/` |
-| 分析 | 按中英文规则提取问题和原文证据 | `services/ai/app/` |
-| 共享数据 | 数据模型及输入输出格式 | `services/common/` |
-| 期中界面 | 演示控制、状态展示和故障场景 | `demo/midterm/` |
-| 产品前端 | 五页布局及模拟复核交互 | `frontend/` |
+批次拥有评论、问题组和校验记录；评论拥有版本、任务及分析记录；评论与问题组通过证据关联连接，人工操作另存历史。
+归组、人工移动、补充问题和合并／拆分均限定在同批次、同平台、同店铺、同商品内；人工纠错可以跨类别。
 
-### 3. 一条评论的处理过程
+数据库迁移到 `20261126_0010`。迁移拆开能够还原的历史关联，并标记旧版去重导致记录缺失的批次，不伪造历史正文。
+启动时按批次执行一次旧结果整理，只使用已保存输出，不调用模型；有人工决定或历史的问题组保持原样。
 
-1. `POST /review-batches` 解析并检查输入，提交有效评论、任务和错误行记录，之后返回 HTTP 202。
-   导入完成后，分析由后台独立执行。
-2. 新评论为 `queued`，任务为 `pending`，同一评论同时最多一个活跃任务。
-3. Worker 在数据库锁保护下领取到期任务，将评论改为 `analyzing`，记录到期时间并增加一次
-   `attempts`。发送 HTTP 请求前结束这段事务。
-4. AI 返回 `yes`、`no` 或 `unknown`、类别和证据。Worker 检查格式并在提交原文中定位证据。
-   无法定位的证据丢弃，判断降为 `unknown`。
-5. 保存前重新检查原领取凭据和当前正文。旧领取不能写入；正文变化后按新输入重新排队，
-   并获得新的尝试预算。
-6. 分析记录、问题关联、评论结果和任务完成状态一起提交，Demo 读取已保存结果。
-   `no` 和 `unknown` 都是有效分析，不是任务失败。
+### 任务、停止与删除
 
-英文匹配兼顾大小写和常见否定，证据从原文按句提取并限制长度。英文好评／无问题表达可能返回 `no`，
-其他未匹配英文通常返回 `unknown`，原中文关键词判断保留。规则版本为 `rule-baseline-2`，不代表通用语义理解。
+任务正常经过 `pending → claimed → completed`，异常可重试或最终失败。
+领取和保存按“批次 → 任务 → 评论”加锁。停止操作使用同一个批次锁：截止前已保存的结果保留，未完成记录标为
+`cancelled`。迟到结果不能落库、重试或恢复任务；已发送的外部模型请求可能仍在提供方完成。
 
-当前归组复用同平台、店铺、商品和类别下最早的有效候选／已确认问题组，并保护并发建组。
-它没有比较问题描述的语义，也没有调用 `/suggest-groups`。
+已停止批次的结果页只显示成功完成分析的评论；原始导入记录仍可查看取消状态。
+`no` 和 `unknown` 都属于成功完成分析，不是任务失败。
 
-当前只覆盖四类问题中的部分说法，没有专门的售后、保修规则，中英文也不是逐句等价识别。
-未匹配的中文通常回到 `no`，未匹配的英文通常为 `unknown`；但出现好评表达时，
-即使包含未覆盖投诉也可能返回 `no`。因此不能把 `no` 当作可靠的“确实没有问题”。
-证据检查只确认引用存在于原文，不验证类别和理解是否正确。尚未在有标注、具有代表性的数据集上建立准确率结论。
+移到回收站时先停止剩余分析，并从正常列表、选项、结果和统计中移除。恢复保留编号和历史，不恢复已取消任务。
+永久删除仅清除该批次内容；遇到历史跨范围引用时阻止删除，避免影响其他批次。
+不能无损回退的新批次或生命周期数据，需要通过备份恢复，不能强行降级丢失历史。
 
-### 4. 保存的数据
+### 分类、归组与复核
 
-```mermaid
-erDiagram
-    INGESTION_BATCHES ||--o{ BATCH_ROWS : 错误行
-    INGESTION_BATCHES |o--o{ COMMENTS : 接收
-    COMMENTS ||--o{ COMMENT_REVISIONS : 版本
-    COMMENTS ||--o{ JOBS : 安排
-    JOBS |o--o{ ANALYSIS_RUNS : 尝试
-    COMMENTS ||--o{ ANALYSIS_RUNS : 分析
-    COMMENTS ||--o{ COMMENT_ISSUES : 证据
-    ISSUES ||--o{ COMMENT_ISSUES : 归组
-    ISSUES ||--o{ ISSUE_ACTIONS : 计划复核记录
-```
+| 类别 | 定义 |
+| --- | --- |
+| 质量 | 破损、零件失效、拉链卡住、开线、掉色等 |
+| 物流 | 未收到、配送延迟、地址问题等 |
+| 描述不符 | 尺码／合身度、颜色或款式错误、与商品描述不一致 |
+| 使用体验 | 舒适性和使用便利性，不包含尺码问题 |
+| 其他 | 价格、性价比及上述类别之外的具体问题 |
 
-共有九张业务表。`issue_actions` 为计划中的复核流程提供数据结构；有表和输入格式不代表
-复核动作接口已经完成。完整字段和约束见 `services/common/models.py`，迁移末版为 `20261027_0003`。
+偏大、偏小、偏窄都归入“描述不符”，价格归入“其他”。同类别可以有不同具体问题；价格与尺码、偏大与偏小等
+已知不同问题不会仅因相似度高而合并。MiniLM 只比较同批次商品类别内的候选。
+多个候选接近时可以建议放入最接近的组，同时标记待人工确认。归组服务失败时只复用完全一致的标题，或建立待确认组，
+不再直接放入该类别最早的问题组。
 
-评论按 `(platform, shop_id, product_id, source_review_id)` 识别；缺少来源编号时，
-以 SHA-256 相关输入生成稳定的 `synth:` 编号。正文变化会追加版本记录。
-未经人工处理的旧 AI 建议可以失效；已接受、已拒绝或人工建立的关联保留。
-当前建议数排除已失效建议。批次保存导入计数；分析进度及展示的完成状态在查询时汇总，
-这两类数量含义不同，不应相加。
+页面层级为“批次 → 商品 → 类别 → 上方已归组 → 下方待确认”。已归组分别标明 AI 自动确认、人工确认或人工调整。
+待确认内容可以人工确认，两种内容都可调整归组。关联接受与整个问题的确认、处理完成分别记录，后台重跑保留人工决定。
 
-### 5. 失败处理
+批次和商品选项完整分页读取；商品由平台、店铺和商品编号共同区分，并随批次选择联动。
+问题看板按完整商品分页，类别内另行加载更多关联。取消及回收站记录不计入正常结果。
 
-```mermaid
-stateDiagram-v2
-    [*] --> pending
-    pending --> claimed: 领取；attempts + 1
-    claimed --> completed: 保存有效结果
-    claimed --> pending: 重试或可恢复的过期任务
-    claimed --> failed: 不可重试或达到上限
-    claimed --> pending: 正文变化；重置预算
-```
+### AI 接入卡片
 
-`attempts` 只统计实际领取，包含首次执行，回收不增加。默认最多尝试三次，
-网络类错误重试前分别等待 60、300 秒。无效输出最多重试一次；其他 HTTP 4xx 和未分类程序错误
-不自动重试。每轮检查过期任务，次数用尽时最终失败，回收脚本复用同一规则。
-人工 retry/recover 接口和批量重放工具尚未实现。数据库故障导致失败也无法记录时，
-保留领取等待到期回收，此时不能保证保存该次分析记录。
+| 项目 | 实现 |
+| --- | --- |
+| 工作流步骤 | Worker 对已保存的批次评论调用 `/extract-issues`，校验后再通过 `/suggest-groups` 进行本地语义匹配。 |
+| 最小化输入 | 外部模型收到评论正文（最多 2,000 字符）、类别定义及说明，不额外发送内部批次、评论、店铺编号。 |
+| 输出约定 | `has_issue` 为 yes/no/unknown；问题包含受控类别、1–500 字符的描述和原文证据，以及可选的 0–1 置信度。每条评论每个类别最多提取一个问题。 |
+| 自动采用条件 | 来源必须是 `llm`，置信度至少 0.9；原文证据有效，已识别的具体问题与类别一致，没有模糊或回退标记。关联已有组还要求相似度至少 0.8。不能只凭模型自报置信度通过；其余保存为待确认建议。 |
+| 复核状态 | AI 自动确认使用 accepted 和 `auto_confirmed=true`，不伪造人工身份；人工决定清除此标记并保存操作者及历史。问题跟进状态独立记录。 |
+| 回退 | 已配置模型失败后最多重试两次，共三次；缺少配置立即回退规则。规则结果仍待人工确认；模型尝试和任务尝试分别计数。 |
+| 来源追踪 | 分析记录保留模型／提示词／类别版本、输入哈希、输出、来源、次数、回退原因、耗时和归组信息；关联保留原文证据和复核版本。 |
+| 提供方与本地替代 | OpenAI 兼容提供方由已忽略的本地 `.env` 配置，课程网关及模型继续可配置；规则不需要 Key，MiniLM 在本地运行。更新后的标准提示词为 `review-extraction-v2`。 |
+| 限流 | 每个 Worker 进程顺序处理任务；429 进入有限模型重试及回退，尚未实现全局提供方请求限流器。 |
+| 隐私 | Key 位于提供方认证请求头；评论自身可能含个人信息，尚未自动脱敏。 |
+| 验证 | 覆盖输入／证据校验、五类规则、自动与待确认归组、人工纠错、批次隔离、停止并发、回收／恢复／删除、分页及双语页面。 |
+| 质量边界 | 置信度和相似度阈值是运行规则，不等于已校准的准确率。未知表达、反讽及规则不支持的保修／售后表达仍可能需要人工核对。 |
 
-Demo 单独将重试等待缩短为 3、6 秒，租约为 60 秒，不修改原项目默认配置。
+### 代码位置
 
-### 6. 接口与后续工作
-
-现有 API 覆盖批次上传／进度／错误、评论、问题组、任务状态、统计、健康检查和指标。
-上传使用 JSON 的 `csv_text` 或 `comments` 字段；重复批次请求可使用 JSON 的 `idempotency_key`。
-直接上传 multipart 文件尚未实现。AI 提供 `/extract-issues`，`/suggest-groups` 仍是基础占位接口。
-
-后续工作包括真实评论样本、大模型提取、语义归组及评测，产品前端接真实数据，
-人工决定与问题组合并／拆分／跟进，以及人工任务重放。
-原[目标流程图](assets/fig1_end_to_end_flow.png) 保留作设计参考，不表示全部功能已完成。
-R2 细节见 [r2-implementation.md](r2-implementation.md)。
+导入及批次操作位于 `services/api/app/ingestion.py`、`batches.py`；选项和看板位于 `catalog.py`。
+后台编排和保存位于 `services/worker/app/`；模型、规则和语义归组位于 `services/ai/app/`；
+五类定义及检查位于 `services/common/classification.py`、`categories.py`；人工流程位于 `services/api/app/reviews/`。
+前端由新增的 `scope-filter.js`、`scope-pages.js`、`batch-actions.js` 与原有复核模块共同组成。

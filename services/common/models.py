@@ -55,6 +55,7 @@ class AnalysisStatus(StrEnum):
     ANALYZING = "analyzing"
     ANALYZED = "analyzed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class HasIssue(StrEnum):
@@ -104,6 +105,7 @@ class BatchStatus(StrEnum):
     IMPORTED = "imported"
     COMPLETED = "completed"
     PARTIALLY_FAILED = "partially_failed"
+    STOPPED = "stopped"
 
 
 class JobStatus(StrEnum):
@@ -111,6 +113,7 @@ class JobStatus(StrEnum):
     CLAIMED = "claimed"
     COMPLETED = "completed"
     FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class JobType(StrEnum):
@@ -147,6 +150,38 @@ def _check_in(column: str, values: tuple[str, ...], allow_null: bool = False) ->
 # ---------------------------------------------------------------------------
 # Ingestion
 # ---------------------------------------------------------------------------
+class ReviewUser(Base):
+    __tablename__ = "review_users"
+    __table_args__ = (
+        CheckConstraint("role IN ('viewer', 'reviewer')", name="ck_review_users_role"),
+    )
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    username: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(256), nullable=False)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ReviewSession(Base):
+    __tablename__ = "review_sessions"
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("review_users.id"), nullable=False, index=True)
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ReviewLoginThrottle(Base):
+    __tablename__ = "review_login_throttles"
+    key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    window_start: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+
+
 class IngestionBatch(Base):
     """One upload / pull request; errors and counters live here."""
 
@@ -177,6 +212,16 @@ class IngestionBatch(Base):
     invalid_rows: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     status: Mapped[str] = mapped_column(
         String(24), nullable=False, default=BatchStatus.RECEIVED.value
+    )
+    stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True, index=True
+    )
+    grouping_policy_version: Mapped[int] = mapped_column(
+        Integer, default=2, server_default="0", nullable=False
+    )
+    legacy_incomplete: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
     )
     idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     resubmitted_from_batch_id: Mapped[str | None] = mapped_column(
@@ -222,6 +267,7 @@ class Comment(Base):
     __tablename__ = "comments"
     __table_args__ = (
         UniqueConstraint(
+            "batch_id",
             "platform",
             "shop_id",
             "product_id",
@@ -374,6 +420,9 @@ class Issue(Base):
     category_id: Mapped[str] = mapped_column(String(40), nullable=False)
     title: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    batch_id: Mapped[str | None] = mapped_column(
+        ForeignKey("ingestion_batches.id", ondelete="CASCADE"), index=True, nullable=True
+    )
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=IssueStatus.PROPOSED.value
     )
@@ -440,6 +489,11 @@ class CommentIssue(Base):
     evidence_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
     evidence_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
     evidence_verified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    auto_confirmed: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+    # Human evidence can exist without any successful AI run.
+    evidence_body_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     similarity: Mapped[float | None] = mapped_column(Float, nullable=True)
     analysis_run_id: Mapped[int | None] = mapped_column(
         ForeignKey("analysis_runs.id", ondelete="SET NULL"), nullable=True
@@ -447,8 +501,9 @@ class CommentIssue(Base):
     comment_version: Mapped[int] = mapped_column(
         Integer, nullable=False, default=1, server_default="1"
     )
-    superseded_at: Mapped[datetime | None] = mapped_column(
-        DateTime(timezone=True), nullable=True
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    review_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
     )
     decided_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -486,6 +541,9 @@ class IssueAction(Base):
     from_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     to_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     payload_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    request_id: Mapped[str | None] = mapped_column(String(36), nullable=True, unique=True)
+    request_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    result_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     operator: Mapped[str | None] = mapped_column(String(64), nullable=True)
     note: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -502,7 +560,8 @@ class Job(Base):
     __tablename__ = "jobs"
     __table_args__ = (
         CheckConstraint(
-            "status IN ('pending', 'claimed', 'completed', 'failed')", name="ck_jobs_status"
+            ("status IN ('pending', 'claimed', 'completed', 'failed', 'cancelled')"),
+            name="ck_jobs_status",
         ),
         CheckConstraint("job_type IN ('extract_issues')", name="ck_jobs_job_type"),
         Index("ix_jobs_status_next_attempt_at", "status", "next_attempt_at"),

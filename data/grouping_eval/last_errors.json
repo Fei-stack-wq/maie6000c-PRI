@@ -1,0 +1,228 @@
+{
+  "summary": {
+    "tp": 54,
+    "fp": 12,
+    "tn": 52,
+    "fn": 12,
+    "n": 130,
+    "accuracy": 0.8154
+  },
+  "errors": [
+    {
+      "kind": "fn",
+      "pair_id": "llm001",
+      "text_a": "未发货",
+      "text_b": "快递迟迟不到",
+      "notes": "same cluster slow_ship",
+      "score": 0.5091,
+      "rationale": "keyword gate: score 0.5091 >= T_main 0.35 but no substantive token overlap and below T_overlap 0.55"
+    },
+    {
+      "kind": "fp",
+      "pair_id": "llm027",
+      "text_a": "拉链老是卡住",
+      "text_b": "拉链头油漆脱落",
+      "notes": "hard neg zipper_stuck vs paint_peel",
+      "score": 0.6244,
+      "rationale": "semantic match score 0.6244 >= T_main 0.35; keyword gate bypass at T_overlap >=0.55"
+    },
+    {
+      "kind": "fp",
+      "pair_id": "llm029",
+      "text_a": "主仓拉链拉不动",
+      "text_b": "拉链头油漆脱落",
+      "notes": "hard neg zipper_stuck vs paint_peel",
+      "score": 0.6199,
+      "rationale": "semantic match score 0.6199 >= T_main 0.35; keyword gate bypass at T_overlap >=0.55"
+    },
+    {
+      "kind": "fp",
+      "pair_id": "llm031",
+      "text_a": "拉链老是卡住",
+      "text_b": "侧边缝线开裂",
+      "notes": "hard neg zipper_stuck vs seam_open",
+      "score": 0.6723,
+      "rationale": "semantic match score 0.6723 >= T_main 0.35; keyword gate bypass at T_overlap >=0.55"
+    },
+    {
+      "kind": "fp",
+      "pair_id": "llm032",
+      "text_a": "拉链老是卡住",
+      "text_b": "包角开线了",
+      "notes": "hard neg zipper_stuck vs seam_open",
+      "score": 0.6608,
+      "rationale": "semantic match score 0.6608 >= T_main 0.35; keyword gate bypass at T_overlap >=0.55"
+    },
+    {
+      "kind": "fp",
+      "pair_id": "llm033",
+      "text_a": "主仓拉链拉不动",
+      "text_b": "侧边缝线开裂",
+      "notes": "hard neg zipper_stuck vs seam_open",
+      "score": 0.6334,
+      "rationale": "semantic match score 0.6334 >= T_main 0.35; keyword gate bypass at T_overlap >=0.55"
+    },
+    {
+      "kind": "fp",
+      "pair_id": "llm034",
+      "text_a": "主仓拉链拉不动",
+      "text_b": "包角开线了",
+      "notes": "hard neg zipper_stuck vs seam_open",
+      "score": 0.6724,
+      "rationale": "semantic match score 0.6724 >= T_main 0.35; keyword gate bypass at T_overlap >=0.55"
+    },
+    {
+      "kind": "fp",
+      "pair_id": "llm035",
+      "text_a": "拉链头油漆脱落",
+      "text_b": "侧边缝线开裂",
+      "notes": "hard neg paint_peel vs seam_open",
+      "score": 0.6255,
+      "rationale": "semantic match score 0.6255 >= T_main 0.35; keyword gate bypass at T_overlap >=0.55"
+    },
+    {
+      "kind": "fn",
+      "pair_id": "llm061",
+      "text_a": "壶嘴密封不好",
+      "text_b": "接水口一直渗水",
+      "notes": "same cluster leak",
+      "score": 0.4961,
+      "rationale": "keyword gate: score 0.4961 >= T_main 0.35 but no substantive token overlap and below T_overlap 0.55"
+    },
+    {
+      "kind": "fn",
+      "pair_id": "llm065",
+      "text_a": "壶嘴太窄不好清洗",
+      "text_b": "开口设计不合理",
+      "notes": "same cluster hard_to_clean",
+      "score": 0.4348,
+      "rationale": "keyword gate: score 0.4348 >= T_main 0.35 but no substantive token overlap and below T_overlap 0.55"
+    },
+    {
+      "kind": "fn",
+      "pair_id": "llm072",
+      "text_a": "配送太慢",
+      "text_b": "物流延误",
+      "notes": "same cluster slow_ship",
+      "score": 0.5474,
+      "rationale": "keyword gate: score 0.5474 >= T_main 0.35 but no substantive token overlap and below T_overlap 0.55"
+    },
+    {
+      "kind": "fp",
+      "pair_id": "llm078",
+      "text_a": "灯闪烁",
+      "text_b": "最大档亮度不足",
+      "notes": "hard neg flicker vs brightness_mismatch",
+      "score": 0.6118,
+      "rationale": "semantic match score 0.6118 >= T_main 0.35; keyword gate bypass at T_overlap >=0.55"
+    },
+    {
+      "kind": "fp",
+      "pair_id": "llm080",
+      "text_a": "灯光闪烁",
+      "text_b": "最大档亮度不足",
+      "notes": "hard neg flicker vs brightness_mismatch",
+      "score": 0.6109,
+      "rationale": "semantic match score 0.6109 >= T_main 0.35; keyword gate bypass at T_overlap >=0.55"
+    },
+    {
+      "kind": "fn",
+      "pair_id": "llm082",
+      "text_a": "直视灯罩很刺眼",
+      "text_b": "没有柔光效果",
+      "notes": "same cluster glare",
+      "score": 0.4513,
+      "rationale": "keyword gate: score 0.4513 >= T_main 0.35 but no substantive token overlap and below T_overlap 0.55"
+    },
+    {
+      "kind": "fn",
+      "pair_id": "llm084",
+      "text_a": "没有柔光效果",
+      "text_b": "灯光太晃眼",
+      "notes": "same cluster glare",
+      "score": 0.4136,
+      "rationale": "keyword gate: score 0.4136 >= T_main 0.35 but no substantive token overlap and below T_overlap 0.55"
+    },
+    {
+      "kind": "fp",
+      "pair_id": "llm088",
+      "text_a": "感应开关没反应",
+      "text_b": "没有柔光效果",
+      "notes": "hard neg switch_fail vs glare",
+      "score": 0.5784,
+      "rationale": "semantic match score 0.5784 >= T_main 0.35; keyword gate bypass at T_overlap >=0.55"
+    },
+    {
+      "kind": "fn",
+      "pair_id": "llm089",
+      "text_a": "物流信息三天不更新",
+      "text_b": "发货极慢",
+      "notes": "same cluster slow_ship",
+      "score": 0.3097,
+      "rationale": "best score 0.3097 < T_main 0.35; create new group"
+    },
+    {
+      "kind": "fn",
+      "pair_id": "llm091",
+      "text_a": "收到的型号和页面不一致",
+      "text_b": "配置不符，内存规格不对",
+      "notes": "same cluster wrong_model",
+      "score": 0.4761,
+      "rationale": "keyword gate: score 0.4761 >= T_main 0.35 but no substantive token overlap and below T_overlap 0.55"
+    },
+    {
+      "kind": "fn",
+      "pair_id": "llm097",
+      "text_a": "机身发烫",
+      "text_b": "充电时过热",
+      "notes": "same cluster overheat",
+      "score": 0.5125,
+      "rationale": "keyword gate: score 0.5125 >= T_main 0.35 but no substantive token overlap and below T_overlap 0.55"
+    },
+    {
+      "kind": "fn",
+      "pair_id": "llm115",
+      "text_a": "衣服缩水严重",
+      "text_b": "下水后明显变短",
+      "notes": "same cluster shrink",
+      "score": 0.4484,
+      "rationale": "keyword gate: score 0.4484 >= T_main 0.35 but no substantive token overlap and below T_overlap 0.55"
+    },
+    {
+      "kind": "fn",
+      "pair_id": "llm120",
+      "text_a": "褪色",
+      "text_b": "颜色掉得厉害",
+      "notes": "same cluster fade",
+      "score": 0.5462,
+      "rationale": "keyword gate: score 0.5462 >= T_main 0.35 but no substantive token overlap and below T_overlap 0.55"
+    },
+    {
+      "kind": "fp",
+      "pair_id": "llm122",
+      "text_a": "洗后缩水",
+      "text_b": "掉色",
+      "notes": "hard neg shrink vs fade",
+      "score": 0.6091,
+      "rationale": "semantic match score 0.6091 >= T_main 0.35; keyword gate bypass at T_overlap >=0.55"
+    },
+    {
+      "kind": "fp",
+      "pair_id": "llm123",
+      "text_a": "洗后缩水",
+      "text_b": "褪色",
+      "notes": "hard neg shrink vs fade",
+      "score": 0.6149,
+      "rationale": "semantic match score 0.6149 >= T_main 0.35; keyword gate bypass at T_overlap >=0.55"
+    },
+    {
+      "kind": "fn",
+      "pair_id": "llm130",
+      "text_a": "贴身穿很痒",
+      "text_b": "穿半小时就受不了",
+      "notes": "same cluster itchy",
+      "score": 0.4257,
+      "rationale": "keyword gate: score 0.4257 >= T_main 0.35 but no substantive token overlap and below T_overlap 0.55"
+    }
+  ]
+}

@@ -10,6 +10,10 @@ AI_LATENCY = Histogram(
     "worker_attempt_duration_seconds",
     "Analysis attempt duration including persistence",
 )
+GROUPING_LATENCY = Histogram(
+    "worker_grouping_request_seconds",
+    "HTTP latency for /suggest-groups grouping hints",
+)
 JOB_STATES = Gauge("worker_jobs", "Current jobs by state", ["status"])
 LAST_POLL = Gauge("worker_last_poll_timestamp_seconds", "Last successful database poll")
 

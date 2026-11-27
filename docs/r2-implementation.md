@@ -1,5 +1,10 @@
 # R2 Implementation / R2 实现说明
 
+Historical implementation note. Current batch boundaries, cancellation and automatic grouping: [architecture](architecture.md).
+
+历史实现记录。当前批次隔离、取消和自动归组规则见[系统架构](architecture.md)。
+
+
 ## English
 
 ### 1. Files and processing order
@@ -17,7 +22,8 @@ job, then call `process_job(claim)`. The original `JobClaim` is retained through
 | `metrics.py` | Event counts, attempt duration, job counts and last poll |
 
 The R1 update path locks existing comments; query counts exclude superseded AI suggestions.
-The database schema and AI HTTP response format remain unchanged.
+The database schema is retained. The AI response now includes optional `source` and
+`fallback_reason`, saved by `_record_run()` in `AnalysisRun.output_json`.
 
 ### 2. Success and data protection
 
@@ -31,10 +37,11 @@ write. If text changed, the old result is recorded as discarded/failed with `inp
 current input gets a new budget. Otherwise the analysis, issue links, comment result and completed
 job commit together. Exceptions roll back partial writes.
 
-Groups currently use platform/shop/product/category, with PostgreSQL advisory locks to avoid
-concurrent duplicate groups. This is a category baseline, not semantic grouping.
-Unreviewed AI suggestions can be replaced; accepted/rejected, human-created or decided links
-are preserved. Old superseded suggestions are not counted as current suggestions.
+Groups are scoped by platform/shop/product/category. Worker calls `/suggest-groups` for a
+semantic hint, then takes an advisory lock and re-reads candidates before writing; on hint
+failure it reuses the earliest same-category group (category baseline). Unreviewed AI
+suggestions can be replaced; accepted/rejected, human-created or decided links are preserved.
+Old superseded suggestions are not counted as current suggestions.
 
 ### 3. Retry and recovery
 
@@ -63,7 +70,7 @@ bounded attempt. A database outage or forced kill may prevent saving the attempt
 | `WORKER_RECOVERY_LIMIT` | 100 | 100 |
 | `WORKER_METRICS_PORT` | 8200 | 8200 |
 | `WORKER_POLL_SECONDS` | 2 | 0.3 |
-| `WORKER_REQUEST_TIMEOUT_SECONDS` | 20 | 10 |
+| `WORKER_REQUEST_TIMEOUT_SECONDS` | 20 | 22 |
 
 Default retry waits before the second and third attempts are 60 and 300 seconds; the demo uses
 3 and 6 seconds. The lease must exceed the HTTP timeout. Metrics and log commands are in
@@ -80,7 +87,9 @@ Reproduce with ` .\scripts\test_r2.ps1 `; details and conditions are in the
 Manual retry/recover APIs, persistent manual job-operation audit and batch replay remain unimplemented.
 `python -m scripts.recover_stale_jobs` only recovers expired/exhausted active work under the existing
 rules; it does not restart terminal failed jobs. R4 must protect concurrent review writes when its
-write endpoints are added. LLM and semantic grouping belong to the remaining analysis work.
+write endpoints are added. Model extraction is connected through `run_extraction()`; semantic
+grouping with MiniLM and calib/test evaluation sets are in place. Expected provider failures return marked rule fallback,
+while errors reaching the Worker use the retry table above.
 
 ## 中文
 
@@ -99,7 +108,8 @@ write endpoints are added. LLM and semantic grouping belong to the remaining ana
 | `metrics.py` | 事件次数、尝试耗时、任务数和最近轮询 |
 
 R1 更新已有评论时增加行锁，查询计数排除已失效 AI 建议。
-数据库结构和 AI HTTP 返回格式保持不变。
+数据库结构继续使用原表。AI 返回新增可选 `source` 和 `fallback_reason`，
+由 `_record_run()` 保存到 `AnalysisRun.output_json`。
 
 ### 2. 成功处理与数据保护
 
@@ -112,9 +122,10 @@ Worker 读取固定输入后结束数据库会话，在不持锁的情况下发�
 保存旧结果被丢弃／失败的记录，再为当前输入重新分配预算。
 输入未变时，分析、问题关联、评论结果和任务完成一起提交；中间异常回滚部分写入。
 
-当前按平台／店铺／商品／类别归组，使用 PostgreSQL advisory lock 防止并发重复建组，
-这仍是类别基线，不是语义归组。未经人工处理的 AI 建议可以更新；已接受、已拒绝、
-人工建立或已有决定信息的关联保留，失效建议不计入当前建议数。
+归组范围仍是平台／店铺／商品／类别。Worker 先调用 `/suggest-groups` 取得语义建议，
+再加 advisory lock 并重读候选后写入；建议失败时回退为同类最早一组（类别基线）。
+未经人工处理的 AI 建议可以更新；已接受、已拒绝、人工建立或已有决定信息的关联保留，
+失效建议不计入当前建议数。
 
 ### 3. 重试与回收
 
@@ -143,7 +154,7 @@ R1 在中断期间更新正文时，回收保留新输入的执行机会。
 | `WORKER_RECOVERY_LIMIT` | 100 | 100 |
 | `WORKER_METRICS_PORT` | 8200 | 8200 |
 | `WORKER_POLL_SECONDS` | 2 | 0.3 |
-| `WORKER_REQUEST_TIMEOUT_SECONDS` | 20 | 10 |
+| `WORKER_REQUEST_TIMEOUT_SECONDS` | 20 | 22 |
 
 默认第二、三次执行前分别等待 60、300 秒；Demo 为 3、6 秒。
 租约必须长于 HTTP 超时。指标和日志命令见 [运行说明](operations.md)，两种配置中的 8200 都是内部端口。
@@ -157,4 +168,5 @@ R1 在中断期间更新正文时，回收保留新输入的执行机会。
 
 人工 retry/recover API、持久化人工任务操作审计和批量重放尚未实现。
 `python -m scripts.recover_stale_jobs` 只按现有规则处理过期／次数用尽的活跃任务，
-不会重新执行最终失败任务。R4 加入写接口时仍需保护并发人工决定；大模型和语义归组属于后续分析工作。
+不会重新执行最终失败任务。R4 加入写接口时仍需保护并发人工决定。模型提取已通过 `run_extraction()` 接入，
+MiniLM 语义归组与校准／测试评测集已接入。已分类提供方故障返回带标记的规则回退；继续传到 Worker 的错误按上表重试。

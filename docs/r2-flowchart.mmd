@@ -29,7 +29,11 @@ flowchart TB
 
   A3 -.->|"待处理任务入库"| CLAIM
 
-    AI["ai/main.py.extract()"] --> RULE["ai/main.py.extract_issues()"]
+    AI["ai/main.py.extract()"] --> DISPATCH["ai/main.py.run_extraction()"]
+    DISPATCH -->|"规则模式"| RULE["ai/main.py.extract_issues()"]
+    DISPATCH -->|"模型模式"| LLM["llm.py.call_llm_extraction()"]
+    LLM -->|"已分类故障，标记回退"| RULE
+    LLM -.->|"有效模型回复"| VALID
   CALL -.->|"HTTP 分析请求"| AI
   RULE -.->|"HTTP 返回"| VALID
 
@@ -58,7 +62,7 @@ flowchart TB
   classDef normal fill:#edf7f0,stroke:#497b60,color:#173d28;
   classDef failure fill:#fff4e5,stroke:#a4783e,color:#513619;
   classDef changed fill:#f4effb,stroke:#8a6aa6,color:#4c3567;
-  class A1,A2,A3,AI,RULE,READ_COMMENT,READ_ISSUE context;
+  class A1,A2,A3,AI,DISPATCH,LLM,RULE,READ_COMMENT,READ_ISSUE context;
   class W,N,REC,MET,CLAIM,PROC,INPUT,OWN1,SNAP,CALL,VALID,EVID,COMPLETE,OWN2,CURRENT,RECORD,SAVE,CLEAR,NEXT normal;
   class CLASSIFY,HANDLE,OWN3,FAILED_INPUT,FAILED_RUN,RETRY,DELAY,CLEAR_RETRY,CLEAR_FAILED failure;
   class DISCARD,CHANGE changed;

@@ -38,7 +38,11 @@ PATTERNS = {
         r"\b(?:arrived|delivered)\b[^.!?;\n]{0,20}\blate\b",
         r"\b(?:package|parcel|order)\b[^.!?;\n]{0,20}\b(?:missing|lost)\b",
     ),
+    "other": (r"\btoo?\s+expensive\b", r"\boverpriced\b", r"\bpoor\s+value\b"),
     "mismatch": (
+        r"\btoo\s+(?:big|large|small|narrow|wide|long|short|tight|loose)\b",
+        r"\bruns?\s+(?:big|large|small)\b",
+        r"\b(?:does\s+not|doesn['’]t|cannot|can['’]t)\s+fit\b",
         r"\bwrong\s+(?:size|colou?r|item|product)\b",
         r"\bnot\s+as\s+(?:described|pictured|advertised|shown)\b",
         r"\b(?:colou?r|size|item|product)\b[^.!?;\n]{0,20}\bdifferent\b",
@@ -47,11 +51,10 @@ PATTERNS = {
     ),
     "usability": (
         r"\b(?:uncomfortable|unusable)\b",
-        r"\btoo\s+(?:heavy|tight|small|narrow)\b",
+        r"\btoo\s+heavy\b",
         r"\b(?:hard|difficult)\s+to\s+(?:use|carry|open|close|wear)\b",
         r"\bnot\s+enough\s+(?:space|room|capacity)\b",
         r"\b(?:not|isn['’]t|aren['’]t)\s+(?:very\s+)?comfortable\b",
-        r"\b(?:does\s+not|doesn['’]t|cannot|can['’]t)\s+fit\b",
     ),
 }
 RULES = {category: tuple(re.compile(p, re.I) for p in patterns)
@@ -103,6 +106,12 @@ def find_issue(text: str, category: str) -> tuple[int, int] | None:
                if not _match_is_negated(text, match)]
     if not matches:
         return None
+    if category == "mismatch":
+        from services.common.classification import facets
+        matches = [match for match in matches if match.group().casefold() != "too long"
+                   or "size_long" in facets(text)]
+        if not matches:
+            return None
     first = min(matches, key=lambda match: match.start())
     return first.span()
 

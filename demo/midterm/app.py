@@ -20,6 +20,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 
+from services.common.config import get_settings
 from services.common.db import get_session_factory
 from services.common.models import AnalysisRun, Comment, CommentIssue, Issue, Job, utcnow
 from services.common.schemas import ExtractionRequest
@@ -151,7 +152,12 @@ def read_state():
                       for link, issue in links],
             "runs": [{"attempt": run.output_json.get("_worker", {}).get("attempt"),
                       "status": run.status, "error_code": run.error_code,
-                      "latency_ms": run.latency_ms} for run in runs],
+                      "latency_ms": run.latency_ms,
+                      "source": (run.output_json or {}).get("source"),
+                      "fallback_reason": (run.output_json or {}).get("fallback_reason"),
+                      } 
+                      for run in runs
+                    ],
         }
 
 
@@ -200,8 +206,11 @@ async def start():
         if process is None or process.poll() is not None:
             await stop_process("worker")
             env = dict(os.environ, AI_SERVICE_URL="http://127.0.0.1:18707",
-                       WORKER_POLL_SECONDS="0.3", WORKER_REQUEST_TIMEOUT_SECONDS="10",
-                       WORKER_LEASE_SECONDS="60", WORKER_RETRY_BASE_SECONDS="3",
+                       WORKER_POLL_SECONDS="0.3", WORKER_REQUEST_TIMEOUT_SECONDS=str(
+                           max(22, get_settings().extraction_request_timeout_seconds + 5)),
+                       WORKER_LEASE_SECONDS=str(
+                           max(60, get_settings().extraction_request_timeout_seconds + 15)),
+                       WORKER_RETRY_BASE_SECONDS="3",
                        WORKER_RETRY_MAX_SECONDS="6", WORKER_METRICS_PORT="8200")
             launch("worker", [sys.executable, "-m", "services.worker.app.main"], env)
         return read_state()
@@ -231,5 +240,6 @@ async def demo_ai_proxy(payload: ExtractionRequest):
         return JSONResponse({"error": "midterm fault injection"}, status_code=503)
     async with httpx.AsyncClient() as client:
         response = await client.post("http://127.0.0.1:18100/extract-issues",
-                                     json=payload.model_dump(mode="json"), timeout=5)
+                                     json=payload.model_dump(mode="json"),
+                                     timeout=get_settings().extraction_request_timeout_seconds)
     return JSONResponse(response.json(), status_code=response.status_code)

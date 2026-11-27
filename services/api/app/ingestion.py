@@ -36,6 +36,7 @@ from services.common.schemas import NormalizedComment
 
 MAX_ROWS = 5_000
 MAX_BODY_LENGTH = 2_000
+MAX_CSV_BYTES = 10 * 1024 * 1024
 REQUIRED_COLUMNS = ("shop_id", "product_id", "body")
 OPTIONAL_COLUMNS = ("source_review_id", "review_date", "rating")
 KNOWN_COLUMNS = REQUIRED_COLUMNS + OPTIONAL_COLUMNS
@@ -155,6 +156,11 @@ def _build_comment(
         add("shop_id", "too_long", "shop_id exceeds 64 characters")
     if len(product_id) > 64:
         add("product_id", "too_long", "product_id exceeds 64 characters")
+    if len(row.get("source_review_id", "")) > 128:
+        add("source_review_id", "too_long", "source_review_id exceeds 128 characters")
+    for column, value in row.items():
+        if "\x00" in value:
+            add(column[:64], "invalid_character", "NUL characters are not supported")
 
     try:
         rating = _parse_rating(row.get("rating", ""))
@@ -196,9 +202,24 @@ def _build_comment(
 def parse_csv(text: str, platform: str) -> ParseResult:
     """Parse CSV text into normalised comments, collecting per-row errors."""
     result = ParseResult()
+    if len(text.encode("utf-8")) > MAX_CSV_BYTES:
+        result.fatal = True
+        result.errors.append(RowError(1, None, "file_too_large", "CSV exceeds 10 MiB"))
+        return result
+    try:
+        return _parse_csv_rows(text, platform, result)
+    except csv.Error:
+        result.fatal = True
+        result.errors.append(RowError(
+            result.declared_rows + 2, None, "invalid_csv", "invalid CSV quoting or field size",
+        ))
+        return result
+
+
+def _parse_csv_rows(text: str, platform: str, result: ParseResult) -> ParseResult:
     cleaned = text.lstrip("\ufeff")
-    reader = csv.DictReader(io.StringIO(cleaned))
-    headers = [h.strip() for h in (reader.fieldnames or []) if h]
+    reader = csv.DictReader(io.StringIO(cleaned), strict=True)
+    headers = [h.strip() for h in (reader.fieldnames or [])]
 
     missing = [column for column in REQUIRED_COLUMNS if column not in headers]
     if missing:
@@ -208,12 +229,20 @@ def parse_csv(text: str, platform: str) -> ParseResult:
         )
         return result
 
+    if not all(headers) or len(set(headers)) != len(headers) or any("\x00" in h for h in headers):
+        result.fatal = True
+        result.errors.append(RowError(
+            1, None, "invalid_header", "CSV column names must be nonempty, unique and NUL-free",
+        ))
+        return result
+    reader.fieldnames = headers
+
     unknown = [column for column in headers if column not in KNOWN_COLUMNS]
     if unknown:
         # Unknown columns are tolerated but reported once, so uploads from other
         # platform exports can be imported without editing the file.
         result.errors.append(
-            RowError(1, None, "unknown_columns", "ignored columns: " + ", ".join(unknown))
+            RowError(1, None, "unknown_columns", ("ignored columns: " + ", ".join(unknown))[:500])
         )
 
     for offset, row in enumerate(reader, start=2):
@@ -223,12 +252,21 @@ def parse_csv(text: str, platform: str) -> ParseResult:
                 RowError(offset, None, "too_many_rows", f"batch exceeds {MAX_ROWS} rows")
             )
             break
+        if None in row:
+            result.declared_rows += 1
+            result.errors.append(RowError(
+                offset, None, "extra_columns", "row has more fields than the header",
+            ))
+            continue
         if not any((value or "").strip() for value in row.values()):
             continue
         result.declared_rows += 1
         comment = _build_comment(platform, row, offset, result.errors)
         if comment is not None:
             result.comments.append(comment)
+    if not result.declared_rows:
+        result.fatal = True
+        result.errors.append(RowError(2, None, "empty_csv", "CSV has no data rows"))
     return result
 
 
@@ -307,6 +345,7 @@ def ingest_comments(
     counts = IngestCounts()
     for parsed in comments:
         stmt = select(Comment).where(
+            Comment.batch_id == batch.id,
             Comment.platform == parsed.platform,
             Comment.shop_id == parsed.shop_id,
             Comment.product_id == parsed.product_id,
@@ -329,25 +368,37 @@ def ingest_comments(
             )
             db.add(comment)
             db.flush()
+            db.add(CommentRevision(
+                comment_id=comment.id, version=1, body=comment.body,
+                content_hash=comment.content_hash,
+            ))
             _ensure_job(db, comment, batch.id)
             counts.accepted_rows += 1
             counts.job_count += 1
+            # Subsequent CSV rows may refer to the same source comment.
+            db.flush()
             continue
 
         counts.duplicate_rows += 1
         if existing.content_hash != parsed.content_hash:
+            last_version = db.execute(
+                select(CommentRevision.version)
+                .where(CommentRevision.comment_id == existing.id)
+                .order_by(CommentRevision.version.desc()).limit(1)
+            ).scalar()
+            if last_version is None:
+                # Preserve the original body before updating legacy comments with no snapshot.
+                db.add(CommentRevision(
+                    comment_id=existing.id, version=1, body=existing.body,
+                    content_hash=existing.content_hash,
+                ))
+                last_version = 1
             existing.body = parsed.body
             existing.content_hash = parsed.content_hash
             existing.rating = parsed.rating
             existing.review_date = parsed.review_date
             existing.analysis_status = AnalysisStatus.QUEUED.value
             existing.batch_id = batch.id
-            last_version = db.execute(
-                select(CommentRevision.version)
-                .where(CommentRevision.comment_id == existing.id)
-                .order_by(CommentRevision.version.desc())
-                .limit(1)
-            ).scalar()
             db.add(
                 CommentRevision(
                     comment_id=existing.id,
@@ -358,4 +409,5 @@ def ingest_comments(
             )
             if _ensure_job(db, existing, batch.id):
                 counts.job_count += 1
+            db.flush()
     return counts

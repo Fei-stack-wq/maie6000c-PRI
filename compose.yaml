@@ -16,12 +16,23 @@ services:
       retries: 10
 
   ai:
-    build: .
+    build:
+      context: .
+      args:
+        INSTALL_GROUPING: "1"
     command: uvicorn services.ai.app.main:app --host 0.0.0.0 --port 8100
     env_file:
       - .env
     environment:
       AI_SERVICE_URL: http://ai:8100
+      GROUPING_ENABLED: "true"
+      GROUPING_EMBEDDING_BACKEND: sentence_transformers
+      GROUPING_EMBEDDING_MODEL: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+      # Locked via MiniLM on LLM description pairs when available (see EVAL_NOTES.md).
+      GROUPING_SIMILARITY_THRESHOLD: "${GROUPING_SIMILARITY_THRESHOLD:-0.35}"
+      GROUPING_OVERLAP_THRESHOLD: "${GROUPING_OVERLAP_THRESHOLD:-0.55}"
+      GROUPING_TOP2_MARGIN: "${GROUPING_TOP2_MARGIN:-0.08}"
+      GROUPING_KEYWORD_GATE: "${GROUPING_KEYWORD_GATE:-true}"
     ports:
       - "${AI_HOST_PORT:-8100}:8100"
     healthcheck:
@@ -29,10 +40,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 60s
 
   api:
     build: .
-    command: /bin/sh -c "alembic upgrade head && uvicorn services.api.app.main:app --host 0.0.0.0 --port 8000"
+    command: /bin/sh -c "alembic upgrade head && python -m scripts.regroup_legacy && uvicorn services.api.app.main:app --host 0.0.0.0 --port 8000"
     env_file:
       - .env
     environment:

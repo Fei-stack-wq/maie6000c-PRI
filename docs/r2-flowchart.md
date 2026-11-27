@@ -7,11 +7,12 @@ processing, orange retry/failure, purple changed input, and grey adjacent servic
 Arrows describe processing order, including HTTP and separate reads, rather than only direct
 Python calls. Repeated names mark different call sites. The final `run_once()` means the next poll.
 Recovery decisions stay inside `recover_stale_jobs()`; grouping and human-decision protection
-stay inside `save_issue_links()`. Current grouping is category-based. The original product UI
+stay inside `save_issue_links()`. Worker calls `/suggest-groups` for in-category semantic hints
+and falls back to the earliest same-category group on failure. The original product UI
 is not connected; the midterm demo reads persisted results separately.
 
 [English Mermaid source](r2-flowchart.en.mmd). The saved
-[zoomable view](r2-flowchart.html) and [SVG](r2-flowchart.svg) retain the original Chinese labels.
+[zoomable view](r2-flowchart.html) and [SVG](r2-flowchart.svg) are archived Week 07 rule-only diagrams; the inline Mermaid below shows the current model path.
 
 ```mermaid
 flowchart TB
@@ -45,7 +46,11 @@ flowchart TB
 
   A3 -.->|"Pending job persisted"| CLAIM
 
-    AI["ai/main.py.extract()"] --> RULE["ai/main.py.extract_issues()"]
+    AI["ai/main.py.extract()"] --> DISPATCH["ai/main.py.run_extraction()"]
+    DISPATCH -->|"Rule mode"| RULE["ai/main.py.extract_issues()"]
+    DISPATCH -->|"Model mode"| LLM["llm.py.call_llm_extraction()"]
+    LLM -->|"Expected error; marked fallback"| RULE
+    LLM -.->|"Valid model response"| VALID
   CALL -.->|"HTTP request"| AI
   RULE -.->|"HTTP response"| VALID
 
@@ -74,7 +79,7 @@ flowchart TB
   classDef normal fill:#edf7f0,stroke:#497b60,color:#173d28;
   classDef failure fill:#fff4e5,stroke:#a4783e,color:#513619;
   classDef changed fill:#f4effb,stroke:#8a6aa6,color:#4c3567;
-  class A1,A2,A3,AI,RULE,READ_COMMENT,READ_ISSUE context;
+  class A1,A2,A3,AI,DISPATCH,LLM,RULE,READ_COMMENT,READ_ISSUE context;
   class W,N,REC,MET,CLAIM,PROC,INPUT,OWN1,SNAP,CALL,VALID,EVID,COMPLETE,OWN2,CURRENT,RECORD,SAVE,CLEAR,NEXT normal;
   class CLASSIFY,HANDLE,OWN3,FAILED_INPUT,FAILED_RUN,RETRY,DELAY,CLEAR_RETRY,CLEAR_FAILED failure;
   class DISCARD,CHANGE changed;
@@ -82,6 +87,8 @@ flowchart TB
 ```
 
 ## 中文
+
+下方 Mermaid 展示当前模型分支。保存的 HTML／SVG 为 Week 07 规则版归档。
 
 [打开可缩放流程图](r2-flowchart.html) · [SVG 矢量图](r2-flowchart.svg)
 
@@ -94,7 +101,7 @@ flowchart TB
 - 同名函数在不同位置重复出现，表示不同调用时点，不是多份实现。
 - 为便于看清业务主线，省略了配置、日志、数据库会话等基础代码，以及只转发调用的两个 main 包装函数。
 - 任务过期与次数用尽的回收决策位于 jobs.py.recover_stale_jobs() 内部；分组锁、旧建议失效标记和人工结论保护位于 jobs.py.save_issue_links() 内部。
-- 类别归组仍为当前基线；图中不表示已经完成语义归组或原项目的前端接入。
+- Worker 在同类范围内调用 `/suggest-groups` 做语义建议；调用失败时回退为类别基线（最早一组）。图中不表示产品前端真数据或人工复核写入已完成。
 
 最下方的 `worker/main.py.run_once()` 表示回到下一轮，省略跨越全图的回线。
 
@@ -130,7 +137,11 @@ flowchart TB
 
   A3 -.->|"待处理任务入库"| CLAIM
 
-    AI["ai/main.py.extract()"] --> RULE["ai/main.py.extract_issues()"]
+    AI["ai/main.py.extract()"] --> DISPATCH["ai/main.py.run_extraction()"]
+    DISPATCH -->|"规则模式"| RULE["ai/main.py.extract_issues()"]
+    DISPATCH -->|"模型模式"| LLM["llm.py.call_llm_extraction()"]
+    LLM -->|"已分类故障，标记回退"| RULE
+    LLM -.->|"有效模型回复"| VALID
   CALL -.->|"HTTP 分析请求"| AI
   RULE -.->|"HTTP 返回"| VALID
 
@@ -159,7 +170,7 @@ flowchart TB
   classDef normal fill:#edf7f0,stroke:#497b60,color:#173d28;
   classDef failure fill:#fff4e5,stroke:#a4783e,color:#513619;
   classDef changed fill:#f4effb,stroke:#8a6aa6,color:#4c3567;
-  class A1,A2,A3,AI,RULE,READ_COMMENT,READ_ISSUE context;
+  class A1,A2,A3,AI,DISPATCH,LLM,RULE,READ_COMMENT,READ_ISSUE context;
   class W,N,REC,MET,CLAIM,PROC,INPUT,OWN1,SNAP,CALL,VALID,EVID,COMPLETE,OWN2,CURRENT,RECORD,SAVE,CLEAR,NEXT normal;
   class CLASSIFY,HANDLE,OWN3,FAILED_INPUT,FAILED_RUN,RETRY,DELAY,CLEAR_RETRY,CLEAR_FAILED failure;
   class DISCARD,CHANGE changed;
